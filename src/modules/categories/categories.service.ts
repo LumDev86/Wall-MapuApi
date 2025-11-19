@@ -1,21 +1,29 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Category } from './entities/category.entity';
 import { CreateCategoryDto } from './dtos/create-category.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Injectable()
 export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  async create(createCategoryDto: CreateCategoryDto) {
+  async create(
+    createCategoryDto: CreateCategoryDto,
+    icon?: Express.Multer.File,
+  ) {
     const { parentId, ...data } = createCategoryDto;
 
-    // Si tiene parent, verificar que exista
     if (parentId) {
       const parent = await this.categoryRepository.findOne({
         where: { id: parentId },
@@ -25,7 +33,6 @@ export class CategoriesService {
         throw new NotFoundException('Categoría padre no encontrada');
       }
 
-      // Verificar que el parent no sea una subcategoría (máximo 2 niveles)
       if (parent.parentId) {
         throw new BadRequestException(
           'No se pueden crear subcategorías de tercer nivel',
@@ -33,9 +40,18 @@ export class CategoriesService {
       }
     }
 
+    let iconUrl: string | null = null;
+
+    if (icon) {
+      const upload = await this.cloudinaryService.uploadImage(icon, 'categories');
+      iconUrl = upload.secure_url;
+    }
+
+
     const category = this.categoryRepository.create({
       ...data,
       parentId,
+      icon: iconUrl ?? data.icon,
     });
 
     await this.categoryRepository.save(category);
@@ -48,10 +64,7 @@ export class CategoriesService {
 
   async findAll() {
     const categories = await this.categoryRepository.find({
-      where: { 
-        isActive: true, 
-        parentId: IsNull()
-      },
+      where: { isActive: true, parentId: IsNull() },
       relations: ['subcategories'],
       order: { order: 'ASC', name: 'ASC' },
     });
@@ -75,7 +88,11 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: string, updateCategoryDto: UpdateCategoryDto) {
+  async update(
+    id: string,
+    updateCategoryDto: UpdateCategoryDto,
+    icon?: Express.Multer.File,
+  ) {
     const category = await this.findOne(id);
 
     const { parentId, ...data } = updateCategoryDto;
@@ -106,7 +123,13 @@ export class CategoriesService {
       category.parentId = parentId;
     }
 
+    if (icon) {
+      const upload = await this.cloudinaryService.uploadImage(icon, 'categories');
+      category.icon = upload.secure_url;
+    }
+
     Object.assign(category, data);
+
     await this.categoryRepository.save(category);
 
     return {
@@ -118,14 +141,12 @@ export class CategoriesService {
   async remove(id: string) {
     const category = await this.findOne(id);
 
-    // Verificar si tiene subcategorías
     if (category.subcategories && category.subcategories.length > 0) {
       throw new BadRequestException(
         'No se puede eliminar una categoría con subcategorías',
       );
     }
 
-    // Soft delete
     category.isActive = false;
     await this.categoryRepository.save(category);
 

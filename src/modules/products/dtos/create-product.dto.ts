@@ -2,11 +2,12 @@ import {
   IsString,
   IsNumber,
   IsOptional,
-  IsEnum,
-  Min,
   MinLength,
+  Min,
+  IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type, Transform } from 'class-transformer';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -18,27 +19,30 @@ export class CreateProductDto {
   name: string;
 
   @ApiPropertyOptional({
-    example: 'Alimento balanceado premium para perros adultos',
-    description: 'Descripción del producto',
+    example: 'Alimento balanceado para perros adultos',
+    description: 'Descripción detallada del producto',
   })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 45000,
-    description: 'Precio para minoristas (en pesos)',
+    description: 'Precio al público (minorista)',
   })
-  @IsOptional()
+  @Type(() => Number) // ✅ Convierte string a number
+  @Transform(({ value }) => parseFloat(value)) // ✅ Asegura conversión
   @IsNumber()
   @Min(0)
-  priceRetail?: number;
+  priceRetail: number;
 
   @ApiPropertyOptional({
     example: 38000,
-    description: 'Precio para mayoristas (en pesos)',
+    description: 'Precio mayorista (opcional)',
   })
   @IsOptional()
+  @Type(() => Number) // ✅ Convierte string a number
+  @Transform(({ value }) => value ? parseFloat(value) : undefined) // ✅ Maneja undefined
   @IsNumber()
   @Min(0)
   priceWholesale?: number;
@@ -46,14 +50,15 @@ export class CreateProductDto {
   @ApiProperty({
     example: 50,
     description: 'Cantidad en stock',
-    default: 0,
   })
+  @Type(() => Number) // ✅ Convierte string a number
+  @Transform(({ value }) => parseInt(value, 10)) // ✅ Asegura conversión
   @IsNumber()
   @Min(0)
   stock: number;
 
   @ApiPropertyOptional({
-    example: 'RC-ADU-15',
+    example: 'RC-15KG-001',
     description: 'SKU del producto',
   })
   @IsOptional()
@@ -77,9 +82,9 @@ export class CreateProductDto {
   brand?: string;
 
   @ApiProperty({
-    example: 'uuid-categoria',
+    example: 'uuid-de-categoria',
     description: 'ID de la categoría',
   })
-  @IsString()
+  @IsUUID()
   categoryId: string;
 }

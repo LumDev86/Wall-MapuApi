@@ -27,23 +27,14 @@ import { User } from '../users/entities/user.entity';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // -------------------------
+  // REGISTRO
+  // -------------------------
   @Post('register')
   @ApiOperation({ summary: 'Registrar nuevo usuario' })
   @ApiResponse({
     status: 201,
     description: 'Usuario registrado exitosamente',
-    schema: {
-      example: {
-        message: 'Usuario registrado exitosamente',
-        user: {
-          id: 'uuid',
-          email: 'user@example.com',
-          name: 'Juan Pérez',
-          role: 'client',
-        },
-        token: 'jwt-token',
-      },
-    },
   })
   @ApiResponse({
     status: 409,
@@ -53,24 +44,15 @@ export class AuthController {
     return this.authService.register(registerDto);
   }
 
+  // -------------------------
+  // LOGIN
+  // -------------------------
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Iniciar sesión' })
   @ApiResponse({
     status: 200,
     description: 'Login exitoso',
-    schema: {
-      example: {
-        message: 'Login exitoso',
-        user: {
-          id: 'uuid',
-          email: 'user@example.com',
-          name: 'Juan Pérez',
-          role: 'client',
-        },
-        token: 'jwt-token',
-      },
-    },
   })
   @ApiResponse({
     status: 401,
@@ -80,20 +62,26 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  // -------------------------
+  // FORGOT PASSWORD
+  // -------------------------
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Solicitar recuperación de contraseña' })
+  @ApiOperation({ summary: 'Enviar email de recuperación de contraseña' })
   @ApiResponse({
     status: 200,
-    description: 'Email de recuperación enviado (si el email existe)',
+    description: 'Email enviado (si el usuario existe)',
   })
-  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(forgotPasswordDto);
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
   }
 
+  // -------------------------
+  // RESET PASSWORD
+  // -------------------------
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Restablecer contraseña con token' })
+  @ApiOperation({ summary: 'Restablecer contraseña mediante token' })
   @ApiResponse({
     status: 200,
     description: 'Contraseña actualizada exitosamente',
@@ -102,37 +90,26 @@ export class AuthController {
     status: 404,
     description: 'Token inválido o expirado',
   })
-  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
-    return this.authService.resetPassword(resetPasswordDto);
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
+  // -------------------------
+  // ME (perfil actual)
+  // -------------------------
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
+  @ApiOperation({ summary: 'Obtener usuario autenticado' })
   @ApiResponse({
     status: 200,
-    description: 'Perfil del usuario',
-    schema: {
-      example: {
-        user: {
-          id: 'uuid',
-          email: 'user@example.com',
-          name: 'Juan Pérez',
-          role: 'client',
-          isActive: true,
-          createdAt: '2024-11-13T20:00:00.000Z',
-        },
-      },
-    },
+    description: 'Datos del usuario actual',
   })
   @ApiResponse({
     status: 401,
     description: 'No autorizado',
   })
   async getProfile(@CurrentUser() user: User) {
-    return {
-      user,
-    };
+    return { user };
   }
 }

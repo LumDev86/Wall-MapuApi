@@ -8,13 +8,18 @@ import {
   Delete,
   UseGuards,
   Query,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { ShopsService } from './shops.service';
 import { CreateShopDto } from './dtos/create-shop.dto';
@@ -38,6 +43,8 @@ export class ShopsController {
     status: 201,
     description: 'Local registrado exitosamente',
   })
+  @ApiConsumes('application/x-www-form-urlencoded')
+  @ApiBody({ type: CreateShopDto })
   async create(
     @Body() createShopDto: CreateShopDto,
     @CurrentUser() user: User,
@@ -49,7 +56,7 @@ export class ShopsController {
   @UseGuards(JwtAuthOptionalGuard)
   @ApiOperation({
     summary:
-      'Listar locales en el mapa con filtros y paginación (HU-001, HU-002, HU-003)',
+      'Listar locales en el mapa con filtros y paginación (HU-001, HU-002, HU-003, HU-007)',
     description: `
       Retorna la lista de shops para mostrar en el mapa con soporte de paginación.
       
@@ -58,95 +65,24 @@ export class ShopsController {
       - limit: Resultados por página (default: 10, max: 100)
       
       **HU-002 - Filtrado automático por rol:**
-      - Si el usuario está autenticado como CLIENTE → solo ve MINORISTAS
-      - Si el usuario está autenticado como MINORISTA → solo ve MAYORISTAS
-      - Si el usuario está autenticado como MAYORISTA o ADMIN → ve todos
-      - Si NO está autenticado → ve todos los locales activos
+      - CLIENTE → ve MINORISTAS
+      - MINORISTA → ve MAYORISTAS
+      - MAYORISTA / ADMIN → ve todos
+      - Invitado → ve locales activos
       
-      **HU-003 - Filtro "abiertos ahora":**
-      - Usa el parámetro openNow=true para ver solo locales abiertos en este momento
-      
-      **Filtro por ubicación:**
-      - Envía latitude, longitude y radius para buscar locales cercanos
+      **HU-003 - Filtro "abiertos ahora"**
+      **HU-007 - Filtro por producto**
+      **Filtro por ubicación**
     `,
   })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Número de página (default: 1)',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Resultados por página (default: 10, max: 100)',
-  })
-  @ApiQuery({
-    name: 'type',
-    required: false,
-    enum: ['retailer', 'wholesaler'],
-    description: 'Filtrar por tipo de comercio (manual)',
-  })
-  @ApiQuery({
-    name: 'latitude',
-    required: false,
-    type: Number,
-    description: 'Latitud del usuario para búsqueda por proximidad',
-  })
-  @ApiQuery({
-    name: 'longitude',
-    required: false,
-    type: Number,
-    description: 'Longitud del usuario para búsqueda por proximidad',
-  })
-  @ApiQuery({
-    name: 'radius',
-    required: false,
-    type: Number,
-    description: 'Radio de búsqueda en kilómetros (default: 10)',
-  })
-  @ApiQuery({
-    name: 'openNow',
-    required: false,
-    type: Boolean,
-    description: 'true = solo locales abiertos en este momento (HU-003)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Lista paginada de locales',
-    schema: {
-      example: {
-        data: [
-          {
-            id: 'uuid',
-            name: 'Pet Shop Amigo Fiel',
-            type: 'retailer',
-            latitude: -34.603722,
-            longitude: -58.381592,
-            address: 'Av. Corrientes 1234',
-            city: 'CABA',
-            province: 'Buenos Aires',
-            phone: '+54 9 11 1234-5678',
-            isOpenNow: true,
-            status: 'active',
-          },
-        ],
-        pagination: {
-          total: 45,
-          page: 1,
-          limit: 10,
-          totalPages: 5,
-          hasNextPage: true,
-          hasPrevPage: false,
-        },
-        filters: {
-          byRole: 'client',
-          showingType: 'retailer',
-        },
-      },
-    },
-  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'type', required: false, enum: ['retailer', 'wholesaler'] })
+  @ApiQuery({ name: 'latitude', required: false, type: Number })
+  @ApiQuery({ name: 'longitude', required: false, type: Number })
+  @ApiQuery({ name: 'radius', required: false, type: Number })
+  @ApiQuery({ name: 'openNow', required: false, type: Boolean })
+  @ApiQuery({ name: 'product', required: false, type: String })
   findAll(
     @Query() filters: FilterShopsDto,
     @CurrentUser() user: User | null,
@@ -156,14 +92,8 @@ export class ShopsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener detalle de un local' })
-  @ApiResponse({
-    status: 200,
-    description: 'Detalle del local con información completa',
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Local no encontrado',
-  })
+  @ApiResponse({ status: 200, description: 'Detalle del local con información completa' })
+  @ApiResponse({ status: 404, description: 'Local no encontrado' })
   findOne(@Param('id') id: string) {
     return this.shopsService.findOne(id);
   }
@@ -171,7 +101,14 @@ export class ShopsController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Actualizar un local (solo dueño) (HU-009)' })
+  @UseInterceptors(FileInterceptor('banner'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Actualizar un local con banner publicitario (solo dueño) (HU-009)',
+  })
+  @ApiBody({
+    type: UpdateShopDto,
+  })
   @ApiResponse({
     status: 200,
     description: 'Local actualizado exitosamente',
@@ -180,8 +117,9 @@ export class ShopsController {
     @Param('id') id: string,
     @Body() updateShopDto: UpdateShopDto,
     @CurrentUser() user: User,
+    @UploadedFile() banner?: Express.Multer.File,
   ) {
-    return this.shopsService.update(id, updateShopDto, user);
+    return this.shopsService.update(id, updateShopDto, user, banner);
   }
 
   @Delete(':id')

@@ -11,8 +11,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { CategoriesService } from './modules/categories/categories.service';
-import { CategoriesController } from './modules/categories/categories.controller';
+import { CloudinaryModule } from './common/services/cloudinary.module';
 
 @Module({
   imports: [
@@ -21,6 +20,7 @@ import { CategoriesController } from './modules/categories/categories.controller
       envFilePath: '.env',
       load: [databaseConfig],
     }),
+
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
@@ -32,6 +32,8 @@ import { CategoriesController } from './modules/categories/categories.controller
       },
       inject: [ConfigService],
     }),
+
+    CloudinaryModule,   
     AuthModule,
     UsersModule,
     ShopsModule,
@@ -40,7 +42,7 @@ import { CategoriesController } from './modules/categories/categories.controller
     SubscriptionsModule,
     AdminModule,
   ],
-  controllers: [AppController, CategoriesController],
-  providers: [AppService, CategoriesService],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

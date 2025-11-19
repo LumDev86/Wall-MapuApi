@@ -20,8 +20,11 @@ export class Category {
   @Column({ nullable: true })
   description: string;
 
-  @Column({ nullable: true })
-  icon: string;
+  @Column({
+    type: 'text',
+    nullable: true,
+  })
+  icon: string | null;
 
   @Column({ default: 0 })
   order: number;
@@ -36,8 +39,8 @@ export class Category {
   })
   parent: Category;
 
-  @Column({ nullable: true })
-  parentId: string;
+  @Column({ type: 'uuid', nullable: true })
+  parentId: string | null;
 
   @OneToMany(() => Category, (category) => category.parent)
   subcategories: Category[];

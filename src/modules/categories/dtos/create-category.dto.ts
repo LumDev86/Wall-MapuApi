@@ -22,9 +22,12 @@ export class CreateCategoryDto {
     example: 'https://cloudinary.com/icon.png',
     description: 'URL del ícono de la categoría',
   })
-  @IsOptional()
-  @IsString()
-  icon?: string;
+  @ApiPropertyOptional({
+    type: 'string',
+    format: 'binary',
+    description: 'Ícono de la categoría (archivo opcional)',
+  })
+  icon?: any;
 
   @ApiPropertyOptional({
     example: 1,
@@ -40,5 +43,5 @@ export class CreateCategoryDto {
   })
   @IsOptional()
   @IsString()
-  parentId?: string;
+  parentId?: string | null;
 }

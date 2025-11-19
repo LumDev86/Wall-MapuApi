@@ -5,12 +5,12 @@ import { ProductsController } from './products.controller';
 import { Product } from './entities/product.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { Category } from '../categories/entities/category.entity';
-import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { CloudinaryModule } from 'src/common/services/cloudinary.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, Shop, Category])],
+  imports: [TypeOrmModule.forFeature([Product, Shop, Category]), CloudinaryModule],
   controllers: [ProductsController],
-  providers: [ProductsService, CloudinaryService],
+  providers: [ProductsService,],
   exports: [ProductsService],
 })
 export class ProductsModule {}

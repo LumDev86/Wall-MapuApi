@@ -10,14 +10,19 @@ import { CreateShopDto } from './dtos/create-shop.dto';
 import { UpdateShopDto } from './dtos/update-shop.dto';
 import { FilterShopsDto } from './dtos/filter-shops.dto';
 import { User, UserRole } from '../users/entities/user.entity';
+import { Product } from '../products/entities/product.entity';
 import { GeocodingService } from '../../common/services/geocoding.service';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Injectable()
 export class ShopsService {
   constructor(
     @InjectRepository(Shop)
     private shopRepository: Repository<Shop>,
+    @InjectRepository(Product)
+    private productRepository: Repository<Product>,
     private geocodingService: GeocodingService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   async create(createShopDto: CreateShopDto, owner: User) {
@@ -48,6 +53,11 @@ export class ShopsService {
   }
 
   async findAll(filters: FilterShopsDto, user?: User | null) {
+    // 🔍 HU-007: Si hay filtro por producto, usar búsqueda especializada
+    if (filters.product) {
+      return this.findShopsByProduct(filters, user);
+    }
+
     // Paginación (valores por defecto)
     const page = filters.page || 1;
     const limit = filters.limit || 10;
@@ -55,7 +65,6 @@ export class ShopsService {
 
     const query = this.shopRepository.createQueryBuilder('shop');
 
-    // ✅ CORREGIDO: Tipar correctamente
     let appliedFilter: {
       byRole: string | null;
       showingType: string | null;
@@ -158,6 +167,165 @@ export class ShopsService {
     };
   }
 
+  /**
+   * 🔍 HU-007: Buscar shops que tienen un producto específico
+   */
+  private async findShopsByProduct(filters: FilterShopsDto, user?: User | null) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const skip = (page - 1) * limit;
+
+    // Query builder para productos
+    const productQuery = this.productRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.shop', 'shop')
+      .leftJoinAndSelect('shop.owner', 'owner')
+      .leftJoinAndSelect('product.category', 'category');
+
+    // Filtrar por nombre de producto (búsqueda parcial, case-insensitive)
+    productQuery.andWhere('LOWER(product.name) LIKE LOWER(:productName)', {
+      productName: `%${filters.product}%`,
+    });
+
+    // Solo productos activos y con stock
+    productQuery.andWhere('product.isActive = :isActive', { isActive: true });
+    productQuery.andWhere('product.stock > 0');
+
+    // Solo shops activos
+    productQuery.andWhere('shop.isActive = :shopActive', { shopActive: true });
+    productQuery.andWhere('shop.status = :shopStatus', {
+      shopStatus: ShopStatus.ACTIVE,
+    });
+
+    // HU-002: Filtrar por tipo según rol del usuario
+    let appliedFilter: {
+      byRole: string | null;
+      showingType: string | null;
+      searchedProduct: string;
+    } = {
+      byRole: null,
+      showingType: null,
+      searchedProduct: filters.product || '', // ✅ Aseguramos que nunca sea undefined
+    };
+
+    if (user) {
+      if (user.role === UserRole.CLIENT) {
+        productQuery.andWhere('shop.type = :type', { type: ShopType.RETAILER });
+        appliedFilter.byRole = 'client';
+        appliedFilter.showingType = 'retailer';
+      } else if (user.role === UserRole.RETAILER) {
+        productQuery.andWhere('shop.type = :type', {
+          type: ShopType.WHOLESALER,
+        });
+        appliedFilter.byRole = 'retailer';
+        appliedFilter.showingType = 'wholesaler';
+      }
+    }
+
+    // Filtro manual por tipo
+    if (filters.type) {
+      productQuery.andWhere('shop.type = :type', { type: filters.type });
+      appliedFilter.showingType = filters.type;
+    }
+
+    // Filtro por ubicación (radio)
+    if (filters.latitude && filters.longitude && filters.radius) {
+      const radius = filters.radius || 10;
+      productQuery.andWhere(
+        `(6371 * acos(
+          cos(radians(:lat)) * 
+          cos(radians(shop.latitude)) * 
+          cos(radians(shop.longitude) - radians(:lng)) + 
+          sin(radians(:lat)) * 
+          sin(radians(shop.latitude))
+        )) <= :radius`,
+        {
+          lat: filters.latitude,
+          lng: filters.longitude,
+          radius,
+        },
+      );
+    }
+
+    // Obtener productos con sus shops
+    const allProducts = await productQuery.getMany();
+
+    // Agrupar productos por shop
+    const shopProductsMap = new Map<string, any>();
+
+    allProducts.forEach((product) => {
+      const shopId = product.shop.id;
+
+      if (!shopProductsMap.has(shopId)) {
+        shopProductsMap.set(shopId, {
+          shop: product.shop,
+          matchedProducts: [],
+        });
+      }
+
+      // Determinar qué precio mostrar según el rol
+      let displayPrice = product.priceRetail; // Por defecto minorista
+
+      if (user?.role === UserRole.RETAILER && product.priceWholesale) {
+        displayPrice = product.priceWholesale;
+      }
+
+      // Agregar producto con precio según rol
+      shopProductsMap.get(shopId).matchedProducts.push({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: displayPrice,
+        priceLabel:
+          user?.role === UserRole.RETAILER ? 'Precio Mayorista' : 'Precio',
+        stock: product.stock,
+        images: product.images,
+        brand: product.brand,
+        category: product.category,
+      });
+    });
+
+    // Convertir Map a array
+    let shopsWithProducts = Array.from(shopProductsMap.values());
+
+    // HU-003: Filtrar locales abiertos ahora
+    if (filters.openNow) {
+      shopsWithProducts = shopsWithProducts.filter((item) =>
+        this.isShopOpenNow(item.shop),
+      );
+    }
+
+    // Total de shops encontrados
+    const total = shopsWithProducts.length;
+
+    // Paginación manual
+    const paginatedShops = shopsWithProducts.slice(skip, skip + limit);
+
+    // Agregar isOpenNow y sanitizar
+    const result = paginatedShops.map((item) => ({
+      shop: {
+        ...this.sanitizeShop(item.shop),
+        isOpenNow: this.isShopOpenNow(item.shop),
+      },
+      matchedProducts: item.matchedProducts,
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: result,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+      filters: appliedFilter,
+    };
+  }
+
   async findOne(id: string) {
     const shop = await this.shopRepository.findOne({
       where: { id },
@@ -174,7 +342,12 @@ export class ShopsService {
     };
   }
 
-  async update(id: string, updateShopDto: UpdateShopDto, user: User) {
+  async update(
+    id: string,
+    updateShopDto: UpdateShopDto,
+    user: User,
+    banner?: Express.Multer.File,
+  ) {
     const shop = await this.shopRepository.findOne({
       where: { id },
       relations: ['owner'],
@@ -186,6 +359,23 @@ export class ShopsService {
 
     if (shop.owner.id !== user.id) {
       throw new ForbiddenException('No tienes permiso para editar este local');
+    }
+
+    // 🖼️ HU-009: Subir nuevo banner si se proporciona
+    if (banner) {
+      // Eliminar banner anterior de Cloudinary si existe
+      if (shop.banner) {
+        const publicId = this.cloudinaryService.extractPublicId(shop.banner);
+        await this.cloudinaryService.deleteImage(publicId);
+      }
+
+      // Subir nuevo banner
+      const uploadResult = await this.cloudinaryService.uploadImage(
+        banner,
+        `petshops/banners/${id}`,
+      );
+
+      updateShopDto.banner = uploadResult.secure_url;
     }
 
     // Si cambió la dirección, recalcular coordenadas

@@ -22,9 +22,9 @@ export class CloudinaryService {
           folder,
           resource_type: 'auto',
           transformation: [
-            { width: 1000, height: 1000, crop: 'limit' }, // Limitar tamaño máximo
-            { quality: 'auto:good' }, // Optimizar calidad
-            { fetch_format: 'auto' }, // Formato automático (WebP si es compatible)
+            { width: 1000, height: 1000, crop: 'limit' },
+            { quality: 'auto:good' },
+            { fetch_format: 'auto' },
           ],
         },
         (error: UploadApiErrorResponse, result: UploadApiResponse) => {
@@ -56,7 +56,6 @@ export class CloudinaryService {
     return cloudinary.api.delete_resources(publicIds);
   }
 
-  // Extraer public_id de una URL de Cloudinary
   extractPublicId(url: string): string {
     const parts = url.split('/');
     const filename = parts[parts.length - 1];

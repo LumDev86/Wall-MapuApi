@@ -7,13 +7,18 @@ import {
   Param,
   Delete,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dtos/create-category.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
@@ -31,43 +36,69 @@ export class CategoriesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
+  @UseInterceptors(FileInterceptor('icon'))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Crear categoría (solo admin)' })
-  @ApiResponse({ status: 201, description: 'Categoría creada' })
-  create(@Body() createCategoryDto: CreateCategoryDto) {
-    return this.categoriesService.create(createCategoryDto);
-  }
-
-  @Get()
-  @ApiOperation({ summary: 'Listar todas las categorías con subcategorías' })
-  @ApiResponse({ status: 200, description: 'Lista de categorías' })
-  findAll() {
-    return this.categoriesService.findAll();
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Obtener detalle de una categoría' })
-  @ApiResponse({ status: 200, description: 'Detalle de la categoría' })
-  @ApiResponse({ status: 404, description: 'Categoría no encontrada' })
-  findOne(@Param('id') id: string) {
-    return this.categoriesService.findOne(id);
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Alimentos' },
+        description: { type: 'string' },
+        order: { type: 'number', example: 1 },
+        parentId: { type: 'string' },
+        icon: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  create(
+    @Body() createCategoryDto: CreateCategoryDto,
+    @UploadedFile() icon: Express.Multer.File,
+  ) {
+    return this.categoriesService.create(createCategoryDto, icon);
   }
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
+  @UseInterceptors(FileInterceptor('icon'))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Actualizar categoría (solo admin)' })
-  @ApiResponse({ status: 200, description: 'Categoría actualizada' })
-  update(@Param('id') id: string, @Body() updateCategoryDto: UpdateCategoryDto) {
-    return this.categoriesService.update(id, updateCategoryDto);
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        order: { type: 'number' },
+        parentId: { type: 'string' },
+        icon: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  update(
+    @Param('id') id: string,
+    @Body() updateCategoryDto: UpdateCategoryDto,
+    @UploadedFile() icon: Express.Multer.File,
+  ) {
+    return this.categoriesService.update(id, updateCategoryDto, icon);
+  }
+
+  @Get()
+  findAll() {
+    return this.categoriesService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.categoriesService.findOne(id);
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Eliminar categoría (solo admin)' })
-  @ApiResponse({ status: 200, description: 'Categoría eliminada' })
   remove(@Param('id') id: string) {
     return this.categoriesService.remove(id);
   }
