@@ -14,6 +14,7 @@ import { User } from '../users/entities/user.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { Category } from '../categories/entities/category.entity';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
 export class ProductsService {
@@ -25,6 +26,7 @@ export class ProductsService {
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
     private cloudinaryService: CloudinaryService,
+    private redisService: RedisService,
   ) {}
 
   async create(
@@ -33,7 +35,6 @@ export class ProductsService {
     user: User,
     images?: Express.Multer.File[],
   ) {
-    // Verificar que el shop exista y pertenezca al usuario
     const shop = await this.shopRepository.findOne({
       where: { id: shopId },
       relations: ['owner'],
@@ -47,7 +48,6 @@ export class ProductsService {
       throw new ForbiddenException('No tienes permiso para agregar productos a este local');
     }
 
-    // Verificar que la categoría exista
     const category = await this.categoryRepository.findOne({
       where: { id: createProductDto.categoryId },
     });
@@ -56,7 +56,6 @@ export class ProductsService {
       throw new NotFoundException('Categoría no encontrada');
     }
 
-    // Subir imágenes a Cloudinary
     let imageUrls: string[] = [];
     if (images && images.length > 0) {
       const uploadResults = await this.cloudinaryService.uploadMultipleImages(
@@ -74,6 +73,10 @@ export class ProductsService {
 
     await this.productRepository.save(product);
 
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.deleteKeysByPattern('products:search:*');
+    await this.redisService.deleteKeysByPattern(`products:shop:${shopId}:*`);
+
     return {
       message: 'Producto creado exitosamente',
       product,
@@ -81,42 +84,44 @@ export class ProductsService {
   }
 
   async findAll(filters: FilterProductsDto) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `products:all:${JSON.stringify(filters)}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+    
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
     const query = this.productRepository.createQueryBuilder('product');
 
-    // Solo productos activos
     query.andWhere('product.isActive = :isActive', { isActive: true });
 
-    // Filtro por búsqueda (nombre)
     if (filters.search) {
       query.andWhere('LOWER(product.name) LIKE LOWER(:search)', {
         search: `%${filters.search}%`,
       });
     }
 
-    // Filtro por categoría
     if (filters.categoryId) {
       query.andWhere('product.categoryId = :categoryId', {
         categoryId: filters.categoryId,
       });
     }
 
-    // Filtro por marca
     if (filters.brand) {
       query.andWhere('LOWER(product.brand) = LOWER(:brand)', {
         brand: filters.brand,
       });
     }
 
-    // Filtro por stock disponible
     if (filters.inStock) {
       query.andWhere('product.stock > 0');
     }
 
-    // Filtro por rango de precios (usar priceRetail como referencia)
     if (filters.minPrice !== undefined && filters.maxPrice !== undefined) {
       query.andWhere('product.priceRetail BETWEEN :minPrice AND :maxPrice', {
         minPrice: filters.minPrice,
@@ -132,24 +137,20 @@ export class ProductsService {
       });
     }
 
-    // Joins
     query.leftJoinAndSelect('product.shop', 'shop');
     query.leftJoinAndSelect('product.category', 'category');
 
-    // Total antes de paginar
     const total = await query.getCount();
 
-    // Paginación
     query.skip(skip).take(limit);
 
-    // Ordenar
     query.orderBy('product.createdAt', 'DESC');
 
     const products = await query.getMany();
 
     const totalPages = Math.ceil(total / limit);
 
-    return {
+    const result = {
       data: products,
       pagination: {
         total,
@@ -160,9 +161,22 @@ export class ProductsService {
         hasPrevPage: page > 1,
       },
     };
+
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, { ...result, cached: true }, 300);
+
+    return result;
   }
 
   async findByShop(shopId: string, filters: FilterProductsDto) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `products:shop:${shopId}:${JSON.stringify(filters)}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+    
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
     const shop = await this.shopRepository.findOne({
       where: { id: shopId },
     });
@@ -180,19 +194,16 @@ export class ProductsService {
     query.andWhere('product.shopId = :shopId', { shopId });
     query.andWhere('product.isActive = :isActive', { isActive: true });
 
-    // Solo productos con stock (para clientes)
     if (filters.inStock) {
       query.andWhere('product.stock > 0');
     }
 
-    // Filtro por categoría
     if (filters.categoryId) {
       query.andWhere('product.categoryId = :categoryId', {
         categoryId: filters.categoryId,
       });
     }
 
-    // Filtro por búsqueda
     if (filters.search) {
       query.andWhere('LOWER(product.name) LIKE LOWER(:search)', {
         search: `%${filters.search}%`,
@@ -210,7 +221,7 @@ export class ProductsService {
 
     const totalPages = Math.ceil(total / limit);
 
-    return {
+    const result = {
       data: products,
       pagination: {
         total,
@@ -221,9 +232,22 @@ export class ProductsService {
         hasPrevPage: page > 1,
       },
     };
+
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, { ...result, cached: true }, 300);
+
+    return result;
   }
 
   async findOne(id: string) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `product:${id}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     const product = await this.productRepository.findOne({
       where: { id },
       relations: ['shop', 'category'],
@@ -232,6 +256,9 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException('Producto no encontrado');
     }
+
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, product, 300);
 
     return product;
   }
@@ -255,9 +282,7 @@ export class ProductsService {
       throw new ForbiddenException('No tienes permiso para editar este producto');
     }
 
-    // Si se suben nuevas imágenes
     if (images && images.length > 0) {
-      // Eliminar imágenes anteriores de Cloudinary
       if (product.images && product.images.length > 0) {
         const publicIds = product.images.map((url) =>
           this.cloudinaryService.extractPublicId(url),
@@ -265,7 +290,6 @@ export class ProductsService {
         await this.cloudinaryService.deleteMultipleImages(publicIds);
       }
 
-      // Subir nuevas imágenes
       const uploadResults = await this.cloudinaryService.uploadMultipleImages(
         images,
         `petshops/products/${product.shopId}`,
@@ -273,7 +297,6 @@ export class ProductsService {
       product.images = uploadResults.map((result) => result.secure_url);
     }
 
-    // Si se cambia la categoría, verificar que exista
     if (updateProductDto.categoryId) {
       const category = await this.categoryRepository.findOne({
         where: { id: updateProductDto.categoryId },
@@ -286,6 +309,11 @@ export class ProductsService {
 
     Object.assign(product, updateProductDto);
     await this.productRepository.save(product);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del(`product:${id}`);
+    await this.redisService.deleteKeysByPattern('products:search:*');
+    await this.redisService.deleteKeysByPattern(`products:shop:${product.shopId}:*`);
 
     return {
       message: 'Producto actualizado exitosamente',
@@ -307,7 +335,6 @@ export class ProductsService {
       throw new ForbiddenException('No tienes permiso para eliminar este producto');
     }
 
-    // Eliminar imágenes de Cloudinary
     if (product.images && product.images.length > 0) {
       const publicIds = product.images.map((url) =>
         this.cloudinaryService.extractPublicId(url),
@@ -315,9 +342,13 @@ export class ProductsService {
       await this.cloudinaryService.deleteMultipleImages(publicIds);
     }
 
-    // Soft delete
     product.isActive = false;
     await this.productRepository.save(product);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del(`product:${id}`);
+    await this.redisService.deleteKeysByPattern('products:search:*');
+    await this.redisService.deleteKeysByPattern(`products:shop:${product.shopId}:*`);
 
     return {
       message: 'Producto eliminado exitosamente',

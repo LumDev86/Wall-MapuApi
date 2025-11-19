@@ -9,6 +9,7 @@ import { Category } from './entities/category.entity';
 import { CreateCategoryDto } from './dtos/create-category.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
 export class CategoriesService {
@@ -16,6 +17,7 @@ export class CategoriesService {
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
     private readonly cloudinaryService: CloudinaryService,
+    private redisService: RedisService,
   ) {}
 
   async create(
@@ -47,7 +49,6 @@ export class CategoriesService {
       iconUrl = upload.secure_url;
     }
 
-
     const category = this.categoryRepository.create({
       ...data,
       parentId,
@@ -56,6 +57,9 @@ export class CategoriesService {
 
     await this.categoryRepository.save(category);
 
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del('categories:all:active');
+
     return {
       message: 'Categoría creada exitosamente',
       category,
@@ -63,19 +67,40 @@ export class CategoriesService {
   }
 
   async findAll() {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = 'categories:all:active';
+    const cached = await this.redisService.getJSON<{total: number, categories: Category[]}>(cacheKey);
+    
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
     const categories = await this.categoryRepository.find({
       where: { isActive: true, parentId: IsNull() },
       relations: ['subcategories'],
       order: { order: 'ASC', name: 'ASC' },
     });
 
-    return {
+    const result = {
       total: categories.length,
       categories,
     };
+
+    // 🚀 GUARDAR EN CACHE (10 minutos)
+    await this.redisService.setJSON(cacheKey, result, 600);
+
+    return result;
   }
 
   async findOne(id: string) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `category:${id}`;
+    const cached = await this.redisService.getJSON<Category>(cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     const category = await this.categoryRepository.findOne({
       where: { id },
       relations: ['subcategories', 'parent'],
@@ -85,6 +110,9 @@ export class CategoriesService {
       throw new NotFoundException('Categoría no encontrada');
     }
 
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, category, 300);
+
     return category;
   }
 
@@ -93,7 +121,15 @@ export class CategoriesService {
     updateCategoryDto: UpdateCategoryDto,
     icon?: Express.Multer.File,
   ) {
-    const category = await this.findOne(id);
+    // Usar el método findOne para obtener la categoría (con cache)
+    const category = await this.categoryRepository.findOne({
+      where: { id },
+      relations: ['subcategories', 'parent'],
+    });
+
+    if (!category) {
+      throw new NotFoundException('Categoría no encontrada');
+    }
 
     const { parentId, ...data } = updateCategoryDto;
 
@@ -128,9 +164,18 @@ export class CategoriesService {
       category.icon = upload.secure_url;
     }
 
-    Object.assign(category, data);
+    // Actualizar solo las propiedades que existen en data
+    Object.keys(data).forEach(key => {
+      if (data[key] !== undefined) {
+        category[key] = data[key];
+      }
+    });
 
     await this.categoryRepository.save(category);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del('categories:all:active');
+    await this.redisService.del(`category:${id}`);
 
     return {
       message: 'Categoría actualizada exitosamente',
@@ -139,7 +184,14 @@ export class CategoriesService {
   }
 
   async remove(id: string) {
-    const category = await this.findOne(id);
+    const category = await this.categoryRepository.findOne({
+      where: { id },
+      relations: ['subcategories'],
+    });
+
+    if (!category) {
+      throw new NotFoundException('Categoría no encontrada');
+    }
 
     if (category.subcategories && category.subcategories.length > 0) {
       throw new BadRequestException(
@@ -149,6 +201,10 @@ export class CategoriesService {
 
     category.isActive = false;
     await this.categoryRepository.save(category);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del('categories:all:active');
+    await this.redisService.del(`category:${id}`);
 
     return {
       message: 'Categoría eliminada exitosamente',

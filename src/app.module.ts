@@ -12,13 +12,15 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CloudinaryModule } from './common/services/cloudinary.module';
+import redisConfig from './config/redis.config';
+import { RedisModule } from './common/redis/redis.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [databaseConfig],
+      load: [databaseConfig, redisConfig],
     }),
 
     TypeOrmModule.forRootAsync({
@@ -33,6 +35,7 @@ import { CloudinaryModule } from './common/services/cloudinary.module';
       inject: [ConfigService],
     }),
 
+    RedisModule,
     CloudinaryModule,   
     AuthModule,
     UsersModule,

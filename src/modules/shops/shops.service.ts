@@ -13,6 +13,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
 import { GeocodingService } from '../../common/services/geocoding.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
 export class ShopsService {
@@ -23,10 +24,10 @@ export class ShopsService {
     private productRepository: Repository<Product>,
     private geocodingService: GeocodingService,
     private cloudinaryService: CloudinaryService,
+    private redisService: RedisService,
   ) {}
 
   async create(createShopDto: CreateShopDto, owner: User) {
-    // 🗺️ Geocodificar automáticamente la dirección
     const { latitude, longitude, formattedAddress } =
       await this.geocodingService.geocodeAddress(
         createShopDto.address,
@@ -44,6 +45,9 @@ export class ShopsService {
 
     await this.shopRepository.save(shop);
 
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.deleteKeysByPattern('shops:location:*');
+
     return {
       message:
         'Local registrado exitosamente. Pendiente de pago para activación.',
@@ -58,7 +62,16 @@ export class ShopsService {
       return this.findShopsByProduct(filters, user);
     }
 
-    // Paginación (valores por defecto)
+    // 🚀 CHECK CACHE PRIMERO para búsquedas por ubicación
+    if (filters.latitude && filters.longitude) {
+      const cacheKey = `shops:location:${filters.latitude}:${filters.longitude}:${filters.radius || 10}:${JSON.stringify(filters)}`;
+      const cached = await this.redisService.getJSON(cacheKey);
+      
+      if (cached) {
+        return { ...cached, cached: true };
+      }
+    }
+
     const page = filters.page || 1;
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
@@ -73,7 +86,6 @@ export class ShopsService {
       showingType: null,
     };
 
-    // HU-002: Filtrar por tipo según rol del usuario
     if (user) {
       if (user.role === UserRole.CLIENT) {
         query.andWhere('shop.type = :type', { type: ShopType.RETAILER });
@@ -86,13 +98,11 @@ export class ShopsService {
       }
     }
 
-    // Filtro manual por tipo
     if (filters.type) {
       query.andWhere('shop.type = :type', { type: filters.type });
       appliedFilter.showingType = filters.type;
     }
 
-    // Filtro por estado
     if (filters.status) {
       query.andWhere('shop.status = :status', { status: filters.status });
     } else {
@@ -101,7 +111,6 @@ export class ShopsService {
 
     query.andWhere('shop.isActive = :isActive', { isActive: true });
 
-    // Filtro por ubicación (radio)
     if (filters.latitude && filters.longitude && filters.radius) {
       const radius = filters.radius || 10;
       query.andWhere(
@@ -122,18 +131,14 @@ export class ShopsService {
 
     query.leftJoinAndSelect('shop.owner', 'owner');
 
-    // Obtener total ANTES de paginar (para metadata)
     const totalBeforePagination = await query.getCount();
 
-    // Aplicar paginación
     query.skip(skip).take(limit);
 
-    // Ordenar por fecha de creación (más recientes primero)
     query.orderBy('shop.createdAt', 'DESC');
 
     let shops = await query.getMany();
 
-    // HU-003: Filtrar locales abiertos ahora
     let totalAfterOpenNowFilter = totalBeforePagination;
     if (filters.openNow) {
       shops = shops.filter((shop) => this.isShopOpenNow(shop));
@@ -145,7 +150,6 @@ export class ShopsService {
       isOpenNow: this.isShopOpenNow(shop),
     }));
 
-    // Calcular metadata de paginación
     const total = filters.openNow
       ? totalAfterOpenNowFilter
       : totalBeforePagination;
@@ -153,7 +157,7 @@ export class ShopsService {
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
-    return {
+    const result = {
       data: shopsWithStatus,
       pagination: {
         total,
@@ -165,39 +169,50 @@ export class ShopsService {
       },
       filters: appliedFilter,
     };
+
+    // 🚀 GUARDAR EN CACHE para búsquedas por ubicación (5 minutos)
+    if (filters.latitude && filters.longitude) {
+      const cacheKey = `shops:location:${filters.latitude}:${filters.longitude}:${filters.radius || 10}:${JSON.stringify(filters)}`;
+      await this.redisService.setJSON(cacheKey, { ...result, cached: true }, 300);
+    }
+
+    return result;
   }
 
   /**
    * 🔍 HU-007: Buscar shops que tienen un producto específico
    */
   private async findShopsByProduct(filters: FilterShopsDto, user?: User | null) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `shops:product:${filters.product}:${JSON.stringify(filters)}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+    
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
     const page = filters.page || 1;
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
 
-    // Query builder para productos
     const productQuery = this.productRepository
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.shop', 'shop')
       .leftJoinAndSelect('shop.owner', 'owner')
       .leftJoinAndSelect('product.category', 'category');
 
-    // Filtrar por nombre de producto (búsqueda parcial, case-insensitive)
     productQuery.andWhere('LOWER(product.name) LIKE LOWER(:productName)', {
       productName: `%${filters.product}%`,
     });
 
-    // Solo productos activos y con stock
     productQuery.andWhere('product.isActive = :isActive', { isActive: true });
     productQuery.andWhere('product.stock > 0');
 
-    // Solo shops activos
     productQuery.andWhere('shop.isActive = :shopActive', { shopActive: true });
     productQuery.andWhere('shop.status = :shopStatus', {
       shopStatus: ShopStatus.ACTIVE,
     });
 
-    // HU-002: Filtrar por tipo según rol del usuario
     let appliedFilter: {
       byRole: string | null;
       showingType: string | null;
@@ -205,7 +220,7 @@ export class ShopsService {
     } = {
       byRole: null,
       showingType: null,
-      searchedProduct: filters.product || '', // ✅ Aseguramos que nunca sea undefined
+      searchedProduct: filters.product || '',
     };
 
     if (user) {
@@ -222,13 +237,11 @@ export class ShopsService {
       }
     }
 
-    // Filtro manual por tipo
     if (filters.type) {
       productQuery.andWhere('shop.type = :type', { type: filters.type });
       appliedFilter.showingType = filters.type;
     }
 
-    // Filtro por ubicación (radio)
     if (filters.latitude && filters.longitude && filters.radius) {
       const radius = filters.radius || 10;
       productQuery.andWhere(
@@ -247,10 +260,8 @@ export class ShopsService {
       );
     }
 
-    // Obtener productos con sus shops
     const allProducts = await productQuery.getMany();
 
-    // Agrupar productos por shop
     const shopProductsMap = new Map<string, any>();
 
     allProducts.forEach((product) => {
@@ -263,14 +274,12 @@ export class ShopsService {
         });
       }
 
-      // Determinar qué precio mostrar según el rol
-      let displayPrice = product.priceRetail; // Por defecto minorista
+      let displayPrice = product.priceRetail;
 
       if (user?.role === UserRole.RETAILER && product.priceWholesale) {
         displayPrice = product.priceWholesale;
       }
 
-      // Agregar producto con precio según rol
       shopProductsMap.get(shopId).matchedProducts.push({
         id: product.id,
         name: product.name,
@@ -285,23 +294,18 @@ export class ShopsService {
       });
     });
 
-    // Convertir Map a array
     let shopsWithProducts = Array.from(shopProductsMap.values());
 
-    // HU-003: Filtrar locales abiertos ahora
     if (filters.openNow) {
       shopsWithProducts = shopsWithProducts.filter((item) =>
         this.isShopOpenNow(item.shop),
       );
     }
 
-    // Total de shops encontrados
     const total = shopsWithProducts.length;
 
-    // Paginación manual
     const paginatedShops = shopsWithProducts.slice(skip, skip + limit);
 
-    // Agregar isOpenNow y sanitizar
     const result = paginatedShops.map((item) => ({
       shop: {
         ...this.sanitizeShop(item.shop),
@@ -312,7 +316,7 @@ export class ShopsService {
 
     const totalPages = Math.ceil(total / limit);
 
-    return {
+    const finalResult = {
       data: result,
       pagination: {
         total,
@@ -324,9 +328,22 @@ export class ShopsService {
       },
       filters: appliedFilter,
     };
+
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, { ...finalResult, cached: true }, 300);
+
+    return finalResult;
   }
 
   async findOne(id: string) {
+    // 🚀 CHECK CACHE PRIMERO
+    const cacheKey = `shop:${id}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     const shop = await this.shopRepository.findOne({
       where: { id },
       relations: ['owner'],
@@ -336,10 +353,15 @@ export class ShopsService {
       throw new NotFoundException('Local no encontrado');
     }
 
-    return {
+    const result = {
       ...this.sanitizeShop(shop),
       isOpenNow: this.isShopOpenNow(shop),
     };
+
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, result, 300);
+
+    return result;
   }
 
   async update(
@@ -361,15 +383,12 @@ export class ShopsService {
       throw new ForbiddenException('No tienes permiso para editar este local');
     }
 
-    // 🖼️ HU-009: Subir nuevo banner si se proporciona
     if (banner) {
-      // Eliminar banner anterior de Cloudinary si existe
       if (shop.banner) {
         const publicId = this.cloudinaryService.extractPublicId(shop.banner);
         await this.cloudinaryService.deleteImage(publicId);
       }
 
-      // Subir nuevo banner
       const uploadResult = await this.cloudinaryService.uploadImage(
         banner,
         `petshops/banners/${id}`,
@@ -378,7 +397,6 @@ export class ShopsService {
       updateShopDto.banner = uploadResult.secure_url;
     }
 
-    // Si cambió la dirección, recalcular coordenadas
     if (
       updateShopDto.address ||
       updateShopDto.city ||
@@ -397,6 +415,11 @@ export class ShopsService {
     }
 
     await this.shopRepository.save(shop);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del(`shop:${id}`);
+    await this.redisService.deleteKeysByPattern('shops:location:*');
+    await this.redisService.deleteKeysByPattern('shops:product:*');
 
     return {
       message: 'Local actualizado exitosamente',
@@ -422,6 +445,11 @@ export class ShopsService {
 
     shop.isActive = false;
     await this.shopRepository.save(shop);
+
+    // 🗑️ INVALIDAR CACHE
+    await this.redisService.del(`shop:${id}`);
+    await this.redisService.deleteKeysByPattern('shops:location:*');
+    await this.redisService.deleteKeysByPattern('shops:product:*');
 
     return {
       message: 'Local eliminado exitosamente',
