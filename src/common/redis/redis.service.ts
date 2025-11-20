@@ -1,4 +1,4 @@
-// src/common/redis/redis.service.ts
+// src/common/redis/redis.service.ts - VERSIÓN SIMPLIFICADA
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, RedisClientType } from 'redis';
@@ -16,13 +16,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.disconnect();
+    if (this.client) await this.client.quit();
   }
 
   private async connect() {
     try {
       const redisConfig = this.configService.get('redis');
       
+      if (!redisConfig?.socket?.host) {
+        this.logger.warn('Redis config not found, skipping connection');
+        return;
+      }
+
       this.client = createClient({
         username: redisConfig.username,
         password: redisConfig.password,
@@ -32,47 +37,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      this.client.on('error', (err) => {
-        this.logger.error('Redis Client Error:', err);
-        this.isConnected = false;
-      });
-
-      this.client.on('connect', () => {
-        this.logger.log('Redis Client Connected');
-        this.isConnected = true;
-      });
-
-      this.client.on('disconnect', () => {
-        this.logger.warn('Redis Client Disconnected');
-        this.isConnected = false;
-      });
-
       await this.client.connect();
-      this.logger.log('Redis connection established successfully');
+      this.isConnected = true;
+      this.logger.log('Redis connected successfully');
       
-      await this.client.ping();
-      this.logger.log('Redis ping successful');
-
     } catch (error) {
-      this.logger.error('Failed to connect to Redis:', error);
-      throw error;
+      this.logger.error('Redis connection failed:', error);
+      this.isConnected = false;
     }
   }
 
-  private async disconnect() {
-    if (this.client) {
-      await this.client.quit();
-      this.logger.log('Redis connection closed');
-    }
-  }
-
-  // 🔧 MÉTODOS BÁSICOS
+  // 🔧 MÉTODOS BÁSICOS SIMPLIFICADOS
   async get(key: string): Promise<string | null> {
     if (!this.isConnected) return null;
     try {
       return await this.client.get(key);
     } catch (error) {
-      this.logger.error(`Error getting key ${key}:`, error);
       return null;
     }
   }
@@ -86,7 +66,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         await this.client.set(key, value);
       }
     } catch (error) {
-      this.logger.error(`Error setting key ${key}:`, error);
+      // Silently fail in production
     }
   }
 
@@ -95,22 +75,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.client.del(key);
     } catch (error) {
-      this.logger.error(`Error deleting key ${key}:`, error);
+      // Silently fail
     }
   }
 
-  async exists(key: string): Promise<boolean> {
-    if (!this.isConnected) return false;
-    try {
-      const result = await this.client.exists(key);
-      return result === 1;
-    } catch (error) {
-      this.logger.error(`Error checking key ${key}:`, error);
-      return false;
-    }
-  }
-
-  // 🔍 MÉTODOS AVANZADOS PARA PET-SHOPS
+  // 🔍 MÉTODOS JSON
   async getJSON<T>(key: string): Promise<T | null> {
     const data = await this.get(key);
     return data ? JSON.parse(data) : null;
@@ -120,114 +89,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.set(key, JSON.stringify(value), ttl);
   }
 
-  // 🗺️ MÉTODOS ESPECÍFICOS PARA LA APP
-  async cacheShopsByLocation(
-    lat: number,
-    lng: number,
-    radius: number,
-    filters: any,
-    data: any,
-    ttl: number = 300,
-  ): Promise<void> {
-    const key = this.generateLocationKey(lat, lng, radius, filters);
-    await this.setJSON(key, { ...data, cachedAt: new Date().toISOString() }, ttl);
-  }
-
-  async getShopsByLocation(
-    lat: number,
-    lng: number,
-    radius: number,
-    filters: any,
-  ): Promise<any> {
-    const key = this.generateLocationKey(lat, lng, radius, filters);
-    return await this.getJSON(key);
-  }
-
-  async cacheProductSearch(
-    searchTerm: string,
-    filters: any,
-    data: any,
-    ttl: number = 600,
-  ): Promise<void> {
-    const key = this.generateProductSearchKey(searchTerm, filters);
-    await this.setJSON(key, { ...data, cachedAt: new Date().toISOString() }, ttl);
-  }
-
-  async getProductSearch(searchTerm: string, filters: any): Promise<any> {
-    const key = this.generateProductSearchKey(searchTerm, filters);
-    return await this.getJSON(key);
-  }
-
-  // 🏪 MÉTODOS PARA INVALIDAR CACHE
-  async invalidateShopCache(shopId: string): Promise<void> {
-    await this.deleteKeysByPattern('shops:location:*');
-    await this.del(`shop:${shopId}`);
-  }
-
-  async invalidateProductCache(productId: string): Promise<void> {
-    await this.del(`product:${productId}`);
-    await this.deleteKeysByPattern('products:search:*');
-  }
-
-  // 🔑 GENERADORES DE KEYS
-  private generateLocationKey(lat: number, lng: number, radius: number, filters: any): string {
-    const filterHash = this.hashObject(filters);
-    return `shops:location:${lat.toFixed(4)}:${lng.toFixed(4)}:${radius}:${filterHash}`;
-  }
-
-  private generateProductSearchKey(searchTerm: string, filters: any): string {
-    const filterHash = this.hashObject(filters);
-    return `products:search:${searchTerm}:${filterHash}`;
-  }
-
-  private hashObject(obj: any): string {
-    const str = JSON.stringify(obj);
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(36);
-  }
-
-  // 🗑️ MÉTODO CORREGIDO - SIN SCAN COMPLEJO
+  // 🗑️ MÉTODO SIMPLIFICADO - SIN SCAN
   public async deleteKeysByPattern(pattern: string): Promise<void> {
-    if (!this.isConnected) return;
-    
-    try {
-      // En producción, usa un approach más simple
-      // En lugar de SCAN (que da problemas de tipos), invalidamos manualmente
-      // los patrones más comunes
-      
-      if (pattern === 'shops:location:*') {
-        // Para shops, podemos usar un enfoque diferente o simplemente
-        // esperar que el TTL expire (5 minutos no es mucho)
-        this.logger.log(`Cache pattern ${pattern} will expire by TTL`);
-      }
-      else if (pattern === 'products:search:*') {
-        // Similar para productos
-        this.logger.log(`Cache pattern ${pattern} will expire by TTL`);
-      }
-      
-    } catch (error) {
-      this.logger.error(`Error with cache pattern ${pattern}:`, error);
-    }
-  }
-
-  // 📊 MÉTODOS DE MONITORING
-  async getStats(): Promise<any> {
-    if (!this.isConnected) return null;
-    
-    try {
-      const info = await this.client.info();
-      return {
-        connected: this.isConnected,
-        info: info.split('\r\n').slice(0, 10),
-      };
-    } catch (error) {
-      this.logger.error('Error getting Redis stats:', error);
-      return null;
-    }
+    // En producción, no hacemos nada complejo
+    // Los keys expirarán por TTL automáticamente
+    this.logger.log(`Cache invalidation requested for pattern: ${pattern}`);
   }
 }
