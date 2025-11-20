@@ -1,13 +1,5 @@
 [build]
-builder = "nixpacks"
+builder = "NIXPACKS"
 
-[build.args]
-NODE_ENV = "production"
-
-[deploy]
-startCommand = "npm run start:prod"
-
-[[services]]
-name = "web"
-[[services.ports]]
-port = 3000
+[build.nixpacksSettings]
+nodeVersion = "20"
