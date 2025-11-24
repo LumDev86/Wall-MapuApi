@@ -1,10 +1,17 @@
-import { IsOptional, IsEnum, IsBoolean, IsString, IsNumber, Min, Max } from 'class-validator';
+import { 
+  IsOptional, 
+  IsEnum, 
+  IsBoolean, 
+  IsString, 
+  IsNumber, 
+  Min, 
+  Max 
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ShopType, ShopStatus } from '../entities/shop.entity';
 
 export class FilterShopsDto {
-  // Paginación
   @ApiPropertyOptional({
     example: 1,
     description: 'Número de página (default: 1)',
@@ -29,7 +36,6 @@ export class FilterShopsDto {
   @Max(100)
   limit?: number;
 
-  // Filtros existentes
   @ApiPropertyOptional({
     enum: ShopType,
     description: 'Filtrar por tipo de comercio',

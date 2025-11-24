@@ -6,7 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Category } from './entities/category.entity';
-import { CreateCategoryDto } from './dtos/create-category.dto';
+import { CreateCategoryMultipartDto } from './dtos/create-category-multipart.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
@@ -21,7 +21,7 @@ export class CategoriesService {
   ) {}
 
   async create(
-    createCategoryDto: CreateCategoryDto,
+    createCategoryDto: CreateCategoryMultipartDto,
     icon?: Express.Multer.File,
   ) {
     const { parentId, ...data } = createCategoryDto;
@@ -52,7 +52,7 @@ export class CategoriesService {
     const category = this.categoryRepository.create({
       ...data,
       parentId,
-      icon: iconUrl ?? data.icon,
+      icon: iconUrl || null,
     });
 
     await this.categoryRepository.save(category);

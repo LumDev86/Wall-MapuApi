@@ -9,9 +9,9 @@ import {
   UseGuards,
   Query,
   UseInterceptors,
-  UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -38,25 +38,57 @@ export class ShopsController {
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'logo', maxCount: 1 },
+      { name: 'banner', maxCount: 1 },
+    ]),
+  )
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Registrar un nuevo local (HU-004)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'address', 'province', 'city', 'type'],
+      properties: {
+        name: { type: 'string', example: 'Pet Shop Amigo Fiel' },
+        description: { type: 'string', example: 'Veterinaria y pet shop' },
+        address: { type: 'string', example: 'Av. Corrientes 1234' },
+        province: { type: 'string', example: 'Buenos Aires' },
+        city: { type: 'string', example: 'CABA' },
+        type: { type: 'string', enum: ['retailer', 'wholesaler'], example: 'retailer' },
+        phone: { type: 'string', example: '+54 9 11 1234-5678' },
+        email: { type: 'string', example: 'info@petshop.com' },
+        website: { type: 'string', example: 'https://www.petshop.com' },
+        schedule: { 
+          type: 'string', 
+          example: '{"monday":{"open":"09:00","close":"18:00"},"tuesday":{"open":"09:00","close":"18:00"}}'
+        },
+        logo: { type: 'string', format: 'binary' },
+        banner: { type: 'string', format: 'binary' },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Local registrado exitosamente',
   })
-  @ApiConsumes('application/x-www-form-urlencoded')
-  @ApiBody({ type: CreateShopDto })
   async create(
     @Body() createShopDto: CreateShopDto,
     @CurrentUser() user: User,
+    @UploadedFiles()
+    files?: {
+      logo?: Express.Multer.File[];
+      banner?: Express.Multer.File[];
+    },
   ) {
-    return this.shopsService.create(createShopDto, user);
+    return this.shopsService.create(createShopDto, user, files);
   }
 
   @Get()
   @UseGuards(JwtAuthOptionalGuard)
   @ApiOperation({
-    summary:
-      'Listar locales en el mapa con filtros y paginación (HU-001, HU-002, HU-003, HU-007)',
+    summary: 'Listar locales en el mapa con filtros y paginación (HU-001, HU-002, HU-003, HU-007)',
     description: `
       Retorna la lista de shops para mostrar en el mapa con soporte de paginación.
       
@@ -92,7 +124,10 @@ export class ShopsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener detalle de un local' })
-  @ApiResponse({ status: 200, description: 'Detalle del local con información completa' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalle del local con información completa',
+  })
   @ApiResponse({ status: 404, description: 'Local no encontrado' })
   findOne(@Param('id') id: string) {
     return this.shopsService.findOne(id);
@@ -101,13 +136,34 @@ export class ShopsController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @UseInterceptors(FileInterceptor('banner'))
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'logo', maxCount: 1 },
+      { name: 'banner', maxCount: 1 },
+    ]),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Actualizar un local con banner publicitario (solo dueño) (HU-009)',
+    summary: 'Actualizar un local con imágenes (solo dueño) (HU-009)',
   })
   @ApiBody({
-    type: UpdateShopDto,
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        address: { type: 'string' },
+        province: { type: 'string' },
+        city: { type: 'string' },
+        type: { type: 'string', enum: ['retailer', 'wholesaler'] },
+        phone: { type: 'string' },
+        email: { type: 'string' },
+        website: { type: 'string' },
+        schedule: { type: 'string', example: '{"monday":{"open":"09:00","close":"18:00"}}' },
+        logo: { type: 'string', format: 'binary' },
+        banner: { type: 'string', format: 'binary' },
+      },
+    },
   })
   @ApiResponse({
     status: 200,
@@ -117,9 +173,13 @@ export class ShopsController {
     @Param('id') id: string,
     @Body() updateShopDto: UpdateShopDto,
     @CurrentUser() user: User,
-    @UploadedFile() banner?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      logo?: Express.Multer.File[];
+      banner?: Express.Multer.File[];
+    },
   ) {
-    return this.shopsService.update(id, updateShopDto, user, banner);
+    return this.shopsService.update(id, updateShopDto, user, files);
   }
 
   @Delete(':id')

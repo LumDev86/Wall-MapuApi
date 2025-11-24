@@ -20,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CategoriesService } from './categories.service';
-import { CreateCategoryDto } from './dtos/create-category.dto';
+import { CreateCategoryMultipartDto } from './dtos/create-category-multipart.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -52,7 +52,7 @@ export class CategoriesController {
     },
   })
   create(
-    @Body() createCategoryDto: CreateCategoryDto,
+    @Body() createCategoryDto: CreateCategoryMultipartDto,
     @UploadedFile() icon: Express.Multer.File,
   ) {
     return this.categoriesService.create(createCategoryDto, icon);

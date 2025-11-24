@@ -14,6 +14,7 @@ import { LoginDto } from './dtos/login.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { randomBytes } from 'crypto';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -21,12 +22,12 @@ export class AuthService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   async register(registerDto: RegisterDto) {
     const { email, password, name, phone, role } = registerDto;
 
-    // Verificar si el email ya existe
     const existingUser = await this.userRepository.findOne({
       where: { email },
     });
@@ -35,13 +36,10 @@ export class AuthService {
       throw new ConflictException('El email ya está registrado');
     }
 
-    // Hashear password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear token de verificación de email
     const emailVerificationToken = randomBytes(32).toString('hex');
 
-    // Crear usuario
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
@@ -53,17 +51,22 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
-    // TODO: Enviar email de verificación
+    // 🔥 Enviar email de verificación
+    await this.mailService.sendVerifyEmail({
+      to: email,
+      name: name || 'Usuario',
+      verificationUrl: `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`,
+    });
 
-    // Generar JWT
     const token = this.generateToken(user);
 
     return {
-      message: 'Usuario registrado exitosamente',
+      message: 'Usuario registrado exitosamente. Revisa tu correo para verificar tu cuenta.',
       user: this.sanitizeUser(user),
       token,
     };
   }
+
 
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
@@ -106,23 +109,25 @@ export class AuthService {
     });
 
     if (!user) {
-      // Por seguridad, no revelar si el email existe
       return {
         message: 'Si el email existe, recibirás un correo con instrucciones',
       };
     }
 
-    // Generar token de recuperación
     const resetToken = randomBytes(32).toString('hex');
     const resetExpires = new Date();
-    resetExpires.setHours(resetExpires.getHours() + 1); // Expira en 1 hora
+    resetExpires.setHours(resetExpires.getHours() + 1);
 
     user.passwordResetToken = resetToken;
     user.passwordResetExpires = resetExpires;
 
     await this.userRepository.save(user);
 
-    // TODO: Enviar email con el token
+    // 🔥 Enviar email de reseteo
+    await this.mailService.sendResetPasswordEmail({
+      to: email,
+      resetUrl: `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`,
+    });
 
     return {
       message: 'Si el email existe, recibirás un correo con instrucciones',

@@ -87,7 +87,7 @@ export class ProductsService {
     // 🚀 CHECK CACHE PRIMERO
     const cacheKey = `products:all:${JSON.stringify(filters)}`;
     const cached = await this.redisService.getJSON(cacheKey);
-    
+
     if (cached) {
       return { ...cached, cached: true };
     }

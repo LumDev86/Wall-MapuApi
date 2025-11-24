@@ -5,6 +5,7 @@ import {
   MinLength,
   Min,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
@@ -16,6 +17,7 @@ export class CreateProductDto {
   })
   @IsString()
   @MinLength(3)
+  @Transform(({ value }) => value?.trim())
   name: string;
 
   @ApiPropertyOptional({
@@ -24,45 +26,55 @@ export class CreateProductDto {
   })
   @IsOptional()
   @IsString()
+  @Transform(({ value }) => value?.trim())
   description?: string;
 
   @ApiProperty({
     example: 45000,
     description: 'Precio al público (minorista)',
   })
-  @Type(() => Number) // ✅ Convierte string a number
-  @Transform(({ value }) => parseFloat(value)) // ✅ Asegura conversión
+  @Transform(({ value }) => {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? value : parsed;
+  })
   @IsNumber()
-  @Min(0)
+  @Min(0.01, { message: 'El precio debe ser mayor a 0' })
   priceRetail: number;
 
   @ApiPropertyOptional({
     example: 38000,
-    description: 'Precio mayorista (opcional)',
+    description: 'Precio mayorista (opcional, debe ser menor al precio retail)',
   })
   @IsOptional()
-  @Type(() => Number) // ✅ Convierte string a number
-  @Transform(({ value }) => value ? parseFloat(value) : undefined) // ✅ Maneja undefined
+  @Transform(({ value }) => {
+    if (!value || value === '' || value === 'null') return undefined;
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? value : parsed;
+  })
   @IsNumber()
-  @Min(0)
+  @Min(0.01, { message: 'El precio mayorista debe ser mayor a 0' })
+  @ValidateIf((o) => o.priceWholesale !== undefined)
   priceWholesale?: number;
 
   @ApiProperty({
     example: 50,
     description: 'Cantidad en stock',
   })
-  @Type(() => Number) // ✅ Convierte string a number
-  @Transform(({ value }) => parseInt(value, 10)) // ✅ Asegura conversión
+  @Transform(({ value }) => {
+    const parsed = parseInt(value, 10);
+    return isNaN(parsed) ? value : parsed;
+  })
   @IsNumber()
-  @Min(0)
+  @Min(0, { message: 'El stock no puede ser negativo' })
   stock: number;
 
   @ApiPropertyOptional({
     example: 'RC-15KG-001',
-    description: 'SKU del producto',
+    description: 'SKU del producto (código interno)',
   })
   @IsOptional()
   @IsString()
+  @Transform(({ value }) => value?.trim().toUpperCase())
   sku?: string;
 
   @ApiPropertyOptional({
@@ -71,6 +83,7 @@ export class CreateProductDto {
   })
   @IsOptional()
   @IsString()
+  @Transform(({ value }) => value?.trim())
   barcode?: string;
 
   @ApiPropertyOptional({
@@ -79,12 +92,14 @@ export class CreateProductDto {
   })
   @IsOptional()
   @IsString()
+  @Transform(({ value }) => value?.trim())
   brand?: string;
 
   @ApiProperty({
     example: 'uuid-de-categoria',
     description: 'ID de la categoría',
   })
-  @IsUUID()
+  @IsUUID('4', { message: 'categoryId debe ser un UUID válido' })
+  @Transform(({ value }) => value?.trim())
   categoryId: string;
 }

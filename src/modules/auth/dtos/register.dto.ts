@@ -65,8 +65,8 @@ export class RegisterDto {
   phone?: string;
 
   @ApiPropertyOptional({
-    enum: UserRole,
-    example: UserRole.CLIENT,
+    enum: UserRole, 
+    example: "client || retailer || wholesaler || admin",
     description: 'Rol del usuario en la plataforma',
     default: UserRole.CLIENT,
   })

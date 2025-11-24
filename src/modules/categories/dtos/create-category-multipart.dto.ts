@@ -1,7 +1,8 @@
-import { IsString, IsOptional, IsNumber, MinLength } from 'class-validator';
+import { IsString, IsOptional, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class CreateCategoryDto {
+export class CreateCategoryMultipartDto {
   @ApiProperty({
     example: 'Alimentos',
     description: 'Nombre de la categoría',
@@ -19,22 +20,11 @@ export class CreateCategoryDto {
   description?: string;
 
   @ApiPropertyOptional({
-    example: 'https://cloudinary.com/icon.png',
-    description: 'URL del ícono de la categoría',
-  })
-  @ApiPropertyOptional({
-    type: 'string',
-    format: 'binary',
-    description: 'Ícono de la categoría (archivo opcional)',
-  })
-  icon?: any;
-
-  @ApiPropertyOptional({
     example: 1,
     description: 'Orden de visualización',
   })
   @IsOptional()
-  @IsNumber()
+  @Transform(({ value }) => value ? parseInt(value, 10) : undefined)
   order?: number;
 
   @ApiPropertyOptional({
@@ -43,5 +33,12 @@ export class CreateCategoryDto {
   })
   @IsOptional()
   @IsString()
+  @Transform(({ value }) => {
+    // Convertir string vacío a null
+    if (value === '' || value === 'null' || value === 'undefined') {
+      return null;
+    }
+    return value;
+  })
   parentId?: string | null;
 }

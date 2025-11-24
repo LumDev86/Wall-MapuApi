@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -27,7 +28,20 @@ export class ShopsService {
     private redisService: RedisService,
   ) {}
 
-  async create(createShopDto: CreateShopDto, owner: User) {
+  async create(
+    createShopDto: CreateShopDto,
+    owner: User,
+    files?: {
+      logo?: Express.Multer.File[];
+      banner?: Express.Multer.File[];
+    },
+  ) {
+    // Validar horarios si existen
+    if (createShopDto.schedule) {
+      this.validateSchedule(createShopDto.schedule);
+    }
+
+    // Geocoding de la dirección
     const { latitude, longitude, formattedAddress } =
       await this.geocodingService.geocodeAddress(
         createShopDto.address,
@@ -35,10 +49,40 @@ export class ShopsService {
         createShopDto.province,
       );
 
+    // Subir logo si existe
+    let logoUrl: string | undefined;
+    if (files?.logo?.[0]) {
+      try {
+        const uploadResult = await this.cloudinaryService.uploadImage(
+          files.logo[0],
+          'petshops/logos',
+        );
+        logoUrl = uploadResult.secure_url;
+      } catch (error) {
+        throw new BadRequestException(`Error al subir logo: ${error.message}`);
+      }
+    }
+
+    // Subir banner si existe
+    let bannerUrl: string | undefined;
+    if (files?.banner?.[0]) {
+      try {
+        const uploadResult = await this.cloudinaryService.uploadImage(
+          files.banner[0],
+          'petshops/banners',
+        );
+        bannerUrl = uploadResult.secure_url;
+      } catch (error) {
+        throw new BadRequestException(`Error al subir banner: ${error.message}`);
+      }
+    }
+
     const shop = this.shopRepository.create({
       ...createShopDto,
       latitude,
       longitude,
+      logo: logoUrl,
+      banner: bannerUrl,
       owner,
       status: ShopStatus.PENDING_PAYMENT,
     });
@@ -66,7 +110,7 @@ export class ShopsService {
     if (filters.latitude && filters.longitude) {
       const cacheKey = `shops:location:${filters.latitude}:${filters.longitude}:${filters.radius || 10}:${JSON.stringify(filters)}`;
       const cached = await this.redisService.getJSON(cacheKey);
-      
+
       if (cached) {
         return { ...cached, cached: true };
       }
@@ -86,6 +130,7 @@ export class ShopsService {
       showingType: null,
     };
 
+    // HU-002: Filtrado automático por rol
     if (user) {
       if (user.role === UserRole.CLIENT) {
         query.andWhere('shop.type = :type', { type: ShopType.RETAILER });
@@ -111,6 +156,7 @@ export class ShopsService {
 
     query.andWhere('shop.isActive = :isActive', { isActive: true });
 
+    // Filtro por ubicación (radio)
     if (filters.latitude && filters.longitude && filters.radius) {
       const radius = filters.radius || 10;
       query.andWhere(
@@ -139,6 +185,7 @@ export class ShopsService {
 
     let shops = await query.getMany();
 
+    // HU-003: Filtrar por "abiertos ahora"
     let totalAfterOpenNowFilter = totalBeforePagination;
     if (filters.openNow) {
       shops = shops.filter((shop) => this.isShopOpenNow(shop));
@@ -173,7 +220,11 @@ export class ShopsService {
     // 🚀 GUARDAR EN CACHE para búsquedas por ubicación (5 minutos)
     if (filters.latitude && filters.longitude) {
       const cacheKey = `shops:location:${filters.latitude}:${filters.longitude}:${filters.radius || 10}:${JSON.stringify(filters)}`;
-      await this.redisService.setJSON(cacheKey, { ...result, cached: true }, 300);
+      await this.redisService.setJSON(
+        cacheKey,
+        { ...result, cached: true },
+        300,
+      );
     }
 
     return result;
@@ -182,11 +233,14 @@ export class ShopsService {
   /**
    * 🔍 HU-007: Buscar shops que tienen un producto específico
    */
-  private async findShopsByProduct(filters: FilterShopsDto, user?: User | null) {
+  private async findShopsByProduct(
+    filters: FilterShopsDto,
+    user?: User | null,
+  ) {
     // 🚀 CHECK CACHE PRIMERO
     const cacheKey = `shops:product:${filters.product}:${JSON.stringify(filters)}`;
     const cached = await this.redisService.getJSON(cacheKey);
-    
+
     if (cached) {
       return { ...cached, cached: true };
     }
@@ -225,7 +279,9 @@ export class ShopsService {
 
     if (user) {
       if (user.role === UserRole.CLIENT) {
-        productQuery.andWhere('shop.type = :type', { type: ShopType.RETAILER });
+        productQuery.andWhere('shop.type = :type', {
+          type: ShopType.RETAILER,
+        });
         appliedFilter.byRole = 'client';
         appliedFilter.showingType = 'retailer';
       } else if (user.role === UserRole.RETAILER) {
@@ -330,7 +386,11 @@ export class ShopsService {
     };
 
     // 🚀 GUARDAR EN CACHE (5 minutos)
-    await this.redisService.setJSON(cacheKey, { ...finalResult, cached: true }, 300);
+    await this.redisService.setJSON(
+      cacheKey,
+      { ...finalResult, cached: true },
+      300,
+    );
 
     return finalResult;
   }
@@ -339,7 +399,7 @@ export class ShopsService {
     // 🚀 CHECK CACHE PRIMERO
     const cacheKey = `shop:${id}`;
     const cached = await this.redisService.getJSON(cacheKey);
-    
+
     if (cached) {
       return cached;
     }
@@ -368,7 +428,10 @@ export class ShopsService {
     id: string,
     updateShopDto: UpdateShopDto,
     user: User,
-    banner?: Express.Multer.File,
+    files?: {
+      logo?: Express.Multer.File[];
+      banner?: Express.Multer.File[];
+    },
   ) {
     const shop = await this.shopRepository.findOne({
       where: { id },
@@ -383,20 +446,60 @@ export class ShopsService {
       throw new ForbiddenException('No tienes permiso para editar este local');
     }
 
-    if (banner) {
-      if (shop.banner) {
-        const publicId = this.cloudinaryService.extractPublicId(shop.banner);
-        await this.cloudinaryService.deleteImage(publicId);
-      }
-
-      const uploadResult = await this.cloudinaryService.uploadImage(
-        banner,
-        `petshops/banners/${id}`,
-      );
-
-      updateShopDto.banner = uploadResult.secure_url;
+    // Validar horarios si se están actualizando
+    if (updateShopDto.schedule) {
+      this.validateSchedule(updateShopDto.schedule);
     }
 
+    // Subir nuevo logo si existe
+    if (files?.logo?.[0]) {
+      // Eliminar logo anterior si existe
+      if (shop.logo) {
+        try {
+          const publicId = this.cloudinaryService.extractPublicId(shop.logo);
+          await this.cloudinaryService.deleteImage(publicId);
+        } catch (error) {
+          console.error('Error al eliminar logo anterior:', error);
+        }
+      }
+
+      try {
+        const uploadResult = await this.cloudinaryService.uploadImage(
+          files.logo[0],
+          `petshops/logos/${id}`,
+        );
+        updateShopDto.logo = uploadResult.secure_url;
+      } catch (error) {
+        throw new BadRequestException(`Error al subir logo: ${error.message}`);
+      }
+    }
+
+    // Subir nuevo banner si existe
+    if (files?.banner?.[0]) {
+      // Eliminar banner anterior si existe
+      if (shop.banner) {
+        try {
+          const publicId = this.cloudinaryService.extractPublicId(shop.banner);
+          await this.cloudinaryService.deleteImage(publicId);
+        } catch (error) {
+          console.error('Error al eliminar banner anterior:', error);
+        }
+      }
+
+      try {
+        const uploadResult = await this.cloudinaryService.uploadImage(
+          files.banner[0],
+          `petshops/banners/${id}`,
+        );
+        updateShopDto.banner = uploadResult.secure_url;
+      } catch (error) {
+        throw new BadRequestException(
+          `Error al subir banner: ${error.message}`,
+        );
+      }
+    }
+
+    // Si se actualiza la dirección, recalcular geocoding
     if (
       updateShopDto.address ||
       updateShopDto.city ||
@@ -443,6 +546,7 @@ export class ShopsService {
       );
     }
 
+    // Soft delete
     shop.isActive = false;
     await this.shopRepository.save(shop);
 
@@ -456,6 +560,34 @@ export class ShopsService {
     };
   }
 
+  /**
+   * Validar formato de horarios
+   */
+  private validateSchedule(schedule: any): void {
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    Object.entries(schedule).forEach(([day, times]: [string, any]) => {
+      if (times?.open && !timeRegex.test(times.open)) {
+        throw new BadRequestException(
+          `Formato de hora inválido en ${day}.open. Use HH:mm (ejemplo: 09:00)`,
+        );
+      }
+      if (times?.close && !timeRegex.test(times.close)) {
+        throw new BadRequestException(
+          `Formato de hora inválido en ${day}.close. Use HH:mm (ejemplo: 18:00)`,
+        );
+      }
+      if (times?.open && times?.close && times.open >= times.close) {
+        throw new BadRequestException(
+          `En ${day}, la hora de apertura debe ser menor a la de cierre`,
+        );
+      }
+    });
+  }
+
+  /**
+   * Verificar si el shop está abierto ahora
+   */
   private isShopOpenNow(shop: Shop): boolean {
     if (!shop.schedule) {
       return false;
@@ -485,6 +617,9 @@ export class ShopsService {
     );
   }
 
+  /**
+   * Sanitizar información del shop (remover datos sensibles del owner)
+   */
   private sanitizeShop(shop: Shop) {
     if (shop.owner) {
       const {
