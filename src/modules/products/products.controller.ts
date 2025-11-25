@@ -39,7 +39,7 @@ export class ProductsController {
   @ApiBearerAuth('JWT-auth')
   @UseInterceptors(FilesInterceptor('images', 5)) // Máximo 5 imágenes
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Crear producto con imágenes (HU-005)' })
+  @ApiOperation({ summary: 'Crear producto con imágenes' })
   @ApiBody({
     schema: {
       type: 'object',
