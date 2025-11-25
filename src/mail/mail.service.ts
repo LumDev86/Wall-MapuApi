@@ -1,34 +1,36 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { verifyEmailTemplate } from './templates/verify-email.template';
 import { resetPasswordTemplate } from './templates/reset-password.template';
 
-
 @Injectable()
 export class MailService {
-  private transporter;
+  private resend: Resend;
+  private from: string;
 
   constructor(private configService: ConfigService) {
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get('mail.host'),
-      port: this.configService.get('mail.port'),
-      secure: false,
-      auth: {
-        user: this.configService.get('mail.user'),
-        pass: this.configService.get('mail.pass'),
-      },
-    });
+    this.resend = new Resend(process.env.RESEND_API_KEY as string);
+
+    // Siempre aseguramos un string
+    this.from = this.configService.get<string>('mail.from') ?? 'no-reply@wallmapu.com';
   }
 
   async sendMail(to: string, subject: string, html: string) {
     try {
-      await this.transporter.sendMail({
-        from: this.configService.get('mail.from'),
+      const response = await this.resend.emails.send({
+        from: this.from,
         to,
         subject,
         html,
       });
+
+      if (response.error) {
+        console.error('Resend error:', response.error);
+        throw new InternalServerErrorException('Error al enviar correo');
+      }
+
+      return response;
     } catch (error) {
       console.error(error);
       throw new InternalServerErrorException('Error al enviar correo');
@@ -51,5 +53,4 @@ export class MailService {
 
     await this.sendMail(data.to, 'Restablecé tu contraseña', html);
   }
-
 }

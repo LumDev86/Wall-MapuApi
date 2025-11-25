@@ -51,27 +51,29 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
-    // 🔥 Enviar email de verificación
+    /** -------------------------------------------
+     ** Envío de correo deshabilitado temporalmente
+     --------------------------------------------- */
+    /*
     await this.mailService.sendVerifyEmail({
       to: email,
       name: name || 'Usuario',
       verificationUrl: `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`,
     });
+    */
 
     const token = this.generateToken(user);
 
     return {
-      message: 'Usuario registrado exitosamente. Revisa tu correo para verificar tu cuenta.',
+      message: 'Usuario registrado exitosamente.',
       user: this.sanitizeUser(user),
       token,
     };
   }
 
-
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    // Buscar usuario
     const user = await this.userRepository.findOne({
       where: { email },
     });
@@ -80,7 +82,6 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // Verificar contraseña
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
@@ -91,7 +92,6 @@ export class AuthService {
       throw new UnauthorizedException('Usuario inactivo');
     }
 
-    // Generar JWT
     const token = this.generateToken(user);
 
     return {
@@ -123,11 +123,15 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
-    // 🔥 Enviar email de reseteo
+    /** -------------------------------------------
+     ** Envío de correo deshabilitado temporalmente
+     --------------------------------------------- */
+    /*
     await this.mailService.sendResetPasswordEmail({
       to: email,
       resetUrl: `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`,
     });
+    */
 
     return {
       message: 'Si el email existe, recibirás un correo con instrucciones',
@@ -149,7 +153,6 @@ export class AuthService {
       throw new UnauthorizedException('Token expirado');
     }
 
-    // Hashear nueva contraseña
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     user.password = hashedPassword;
@@ -181,8 +184,7 @@ export class AuthService {
   }
 
   private sanitizeUser(user: User) {
-    const { password, passwordResetToken, emailVerificationToken, ...sanitized } =
-      user;
+    const { password, passwordResetToken, emailVerificationToken, ...sanitized } = user;
     return sanitized;
   }
 }

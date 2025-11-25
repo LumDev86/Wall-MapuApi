@@ -12,7 +12,7 @@ export default registerAs(
     database: process.env.DB_DATABASE || 'postgres',
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
     synchronize: process.env.NODE_ENV === 'development',
-    dropSchema: false,
+    dropSchema: true,
     logging: process.env.NODE_ENV === 'development',
     ssl:
       process.env.DB_SSL === 'true'
