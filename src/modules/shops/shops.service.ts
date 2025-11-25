@@ -1,3 +1,7 @@
+// ============================================
+// shops.service.ts
+// ============================================
+
 import {
   Injectable,
   NotFoundException,
@@ -435,6 +439,28 @@ export class ShopsService {
     await this.redisService.setJSON(cacheKey, result, 300);
 
     return result;
+  }
+
+  /**
+   * Obtener el shop del usuario autenticado
+   */
+  async findMyShop(user: User) {
+    const shop = await this.shopRepository.findOne({
+      where: { 
+        owner: { id: user.id },
+        isActive: true 
+      },
+      relations: ['owner'],
+    });
+
+    if (!shop) {
+      throw new NotFoundException('No tienes un local registrado');
+    }
+
+    return {
+      ...this.sanitizeShop(shop),
+      isOpenNow: this.isShopOpenNow(shop),
+    };
   }
 
   async update(

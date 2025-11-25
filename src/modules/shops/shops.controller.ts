@@ -106,6 +106,25 @@ export class ShopsController {
     return this.shopsService.create(createShopDto, user, files);
   }
 
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Obtener mi local (usuario autenticado)',
+    description: 'Retorna el local del usuario autenticado. Útil para que el dueño gestione su propio local.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Local del usuario autenticado',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'El usuario no tiene un local registrado',
+  })
+  findMyShop(@CurrentUser() user: User) {
+    return this.shopsService.findMyShop(user);
+  }
+
   @Get()
   @UseGuards(JwtAuthOptionalGuard)
   @ApiOperation({
