@@ -41,13 +41,26 @@ export class ShopsService {
       this.validateSchedule(createShopDto.schedule);
     }
 
-    // Geocoding de la dirección
-    const { latitude, longitude, formattedAddress } =
-      await this.geocodingService.geocodeAddress(
+    let latitude: number;
+    let longitude: number;
+    let formattedAddress: string;
+
+    // Si el frontend ya envió las coordenadas, usarlas directamente
+    if (createShopDto.latitude !== undefined && createShopDto.longitude !== undefined) {
+      latitude = createShopDto.latitude;
+      longitude = createShopDto.longitude;
+      formattedAddress = `${createShopDto.address}, ${createShopDto.city}, ${createShopDto.province}`;
+    } else {
+      // Si no, hacer geocoding de la dirección
+      const geocodingResult = await this.geocodingService.geocodeAddress(
         createShopDto.address,
         createShopDto.city,
         createShopDto.province,
       );
+      latitude = geocodingResult.latitude;
+      longitude = geocodingResult.longitude;
+      formattedAddress = geocodingResult.formattedAddress;
+    }
 
     // Subir logo si existe
     let logoUrl: string | undefined;
@@ -499,8 +512,19 @@ export class ShopsService {
       }
     }
 
-    // Si se actualiza la dirección, recalcular geocoding
-    if (
+    // Manejar actualización de coordenadas
+    let needsGeocoding = false;
+    
+    // Si se envían coordenadas explícitas, usarlas directamente
+    if (updateShopDto.latitude !== undefined && updateShopDto.longitude !== undefined) {
+      Object.assign(shop, {
+        ...updateShopDto,
+        latitude: updateShopDto.latitude,
+        longitude: updateShopDto.longitude,
+      });
+    } 
+    // Si se actualiza la dirección sin coordenadas, hacer geocoding
+    else if (
       updateShopDto.address ||
       updateShopDto.city ||
       updateShopDto.province
@@ -513,7 +537,9 @@ export class ShopsService {
         );
 
       Object.assign(shop, { ...updateShopDto, latitude, longitude });
-    } else {
+    } 
+    // Si no se actualiza dirección ni coordenadas, solo actualizar otros campos
+    else {
       Object.assign(shop, updateShopDto);
     }
 

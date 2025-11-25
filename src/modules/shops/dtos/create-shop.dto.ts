@@ -6,6 +6,10 @@ import {
   IsEmail,
   IsUrl,
   MinLength,
+  IsNumber,
+  Min,
+  Max,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
@@ -41,6 +45,28 @@ export class CreateShopDto {
   @IsString()
   @Transform(({ value }) => value?.trim())
   description?: string;
+
+  @ApiPropertyOptional({
+    example: -34.603722,
+    description: 'Latitud de la ubicación (opcional, se calcula automáticamente desde la dirección si no se provee)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  @Min(-90, { message: 'La latitud debe estar entre -90 y 90' })
+  @Max(90, { message: 'La latitud debe estar entre -90 y 90' })
+  latitude?: number;
+
+  @ApiPropertyOptional({
+    example: -58.381592,
+    description: 'Longitud de la ubicación (opcional, se calcula automáticamente desde la dirección si no se provee)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  @Min(-180, { message: 'La longitud debe estar entre -180 y 180' })
+  @Max(180, { message: 'La longitud debe estar entre -180 y 180' })
+  longitude?: number;
 
   @ApiProperty({
     example: 'Av. Corrientes 1234',

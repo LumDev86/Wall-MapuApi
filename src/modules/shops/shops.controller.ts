@@ -45,7 +45,18 @@ export class ShopsController {
     ]),
   )
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Registrar un nuevo local (HU-004)' })
+  @ApiOperation({ 
+    summary: 'Registrar un nuevo local (HU-004)',
+    description: `
+      Registra un nuevo local con dos opciones para las coordenadas:
+      
+      1. **Enviar coordenadas directamente**: El frontend puede enviar latitude y longitude
+         obtenidas desde el navegador (geolocalización) o selección en mapa.
+      
+      2. **Geocoding automático**: Si no se envían coordenadas, el backend las calculará
+         automáticamente desde la dirección, ciudad y provincia.
+    `,
+  })
   @ApiBody({
     schema: {
       type: 'object',
@@ -53,6 +64,16 @@ export class ShopsController {
       properties: {
         name: { type: 'string', example: 'Pet Shop Amigo Fiel' },
         description: { type: 'string', example: 'Veterinaria y pet shop' },
+        latitude: { 
+          type: 'number', 
+          example: -34.603722,
+          description: 'Latitud (opcional, se calcula automáticamente si no se provee)'
+        },
+        longitude: { 
+          type: 'number', 
+          example: -58.381592,
+          description: 'Longitud (opcional, se calcula automáticamente si no se provee)'
+        },
         address: { type: 'string', example: 'Av. Corrientes 1234' },
         province: { type: 'string', example: 'Buenos Aires' },
         city: { type: 'string', example: 'CABA' },
@@ -145,6 +166,13 @@ export class ShopsController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Actualizar un local con imágenes (solo dueño) (HU-009)',
+    description: `
+      Actualiza un local existente. Puede incluir:
+      - Coordenadas explícitas (latitude, longitude)
+      - Dirección (se recalculan coordenadas si no se proveen explícitas)
+      - Imágenes (logo, banner)
+      - Otros campos del local
+    `,
   })
   @ApiBody({
     schema: {
@@ -152,6 +180,8 @@ export class ShopsController {
       properties: {
         name: { type: 'string' },
         description: { type: 'string' },
+        latitude: { type: 'number', description: 'Latitud opcional' },
+        longitude: { type: 'number', description: 'Longitud opcional' },
         address: { type: 'string' },
         province: { type: 'string' },
         city: { type: 'string' },
