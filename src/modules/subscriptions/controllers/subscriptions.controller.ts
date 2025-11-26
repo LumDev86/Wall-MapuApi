@@ -74,7 +74,7 @@ export class SubscriptionsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
-    summary: '🆕 Reintentar pago de una suscripción fallida',
+    summary: 'Reintentar pago de una suscripción fallida',
     description: `
       Genera un nuevo link de pago para una suscripción en estado PENDING o FAILED.
       
@@ -107,7 +107,7 @@ export class SubscriptionsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ 
-    summary: '🆕 Obtener estado del pago de una suscripción',
+    summary: 'Obtener estado del pago de una suscripción',
     description: 'Consulta el estado actual del pago, si puede reintentar, y cuántos intentos quedan.',
   })
   @ApiResponse({
