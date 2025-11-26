@@ -1,37 +1,95 @@
-import { ApiProperty } from '@nestjs/swagger';
+// ============================================
+// subscription-response.dto.ts (ACTUALIZADO)
+// ============================================
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SubscriptionPlan, SubscriptionStatus } from '../entities/subscription.entity';
 
 export class SubscriptionResponseDto {
-  @ApiProperty()
+  @ApiProperty({
+    description: 'ID de la suscripción',
+    example: 'uuid-de-subscription',
+  })
   id: string;
 
-  @ApiProperty({ enum: SubscriptionPlan })
+  @ApiProperty({
+    enum: SubscriptionPlan,
+    description: 'Plan de suscripción',
+    example: SubscriptionPlan.RETAILER,
+  })
   plan: SubscriptionPlan;
 
-  @ApiProperty({ enum: SubscriptionStatus })
+  @ApiProperty({
+    enum: SubscriptionStatus,
+    description: 'Estado de la suscripción',
+    example: SubscriptionStatus.ACTIVE,
+  })
   status: SubscriptionStatus;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Fecha de inicio',
+    example: '2024-01-01T00:00:00.000Z',
+  })
   startDate: Date;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Fecha de vencimiento',
+    example: '2024-02-01T00:00:00.000Z',
+  })
   endDate: Date;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Monto de la suscripción',
+    example: 5000,
+  })
   amount: number;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Renovación automática habilitada',
+    example: true,
+  })
   autoRenew: boolean;
 
-  @ApiProperty({ required: false })
+  @ApiPropertyOptional({
+    description: 'Fecha del último pago exitoso',
+    example: '2024-01-01T10:30:00.000Z',
+  })
   lastPaymentDate?: Date;
 
-  @ApiProperty({ required: false })
+  @ApiPropertyOptional({
+    description: 'Fecha del próximo pago programado',
+    example: '2024-02-01T00:00:00.000Z',
+  })
   nextPaymentDate?: Date;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'ID del shop asociado',
+    example: 'uuid-del-shop',
+  })
   shopId: string;
 
-  @ApiProperty({ required: false })
-  initPoint?: string; // URL de pago de Mercado Pago
+  @ApiPropertyOptional({
+    description: 'URL de pago de Mercado Pago (initPoint)',
+    example: 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123456',
+  })
+  initPoint?: string;
+
+  // 🆕 Nuevos campos para manejo de reintentos
+  @ApiPropertyOptional({
+    description: 'Número de intentos de pago fallidos',
+    example: 2,
+    default: 0,
+  })
+  failedPaymentAttempts?: number;
+
+  @ApiPropertyOptional({
+    description: 'Indica si el usuario puede reintentar el pago',
+    example: true,
+  })
+  canRetryPayment?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Intentos de pago restantes (máximo 5)',
+    example: 3,
+  })
+  attemptsRemaining?: number;
 }

@@ -1,3 +1,6 @@
+// ============================================
+// mercadopago-webhook.dto.ts
+// ============================================
 import { IsString, IsNumber, IsBoolean, IsObject } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 

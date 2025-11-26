@@ -15,10 +15,11 @@ export enum SubscriptionPlan {
 }
 
 export enum SubscriptionStatus {
-  ACTIVE = 'active',
-  EXPIRED = 'expired',
-  CANCELLED = 'cancelled',
-  PENDING = 'pending',
+  PENDING = 'pending', // Esperando pago inicial
+  ACTIVE = 'active', // Pago aprobado y activa
+  EXPIRED = 'expired', // Venció el periodo
+  CANCELLED = 'cancelled', // Cancelada por el usuario
+  FAILED = 'failed', // Pago rechazado/fallido (puede reintentar)
 }
 
 @Entity('subscriptions')
@@ -39,10 +40,10 @@ export class Subscription {
   })
   status: SubscriptionStatus;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'timestamp' })
   startDate: Date;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'timestamp' })
   endDate: Date;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
@@ -66,6 +67,10 @@ export class Subscription {
 
   @Column({ type: 'timestamp', nullable: true })
   nextPaymentDate: Date;
+
+  // 🆕 Contador de intentos de pago fallidos
+  @Column({ type: 'int', default: 0 })
+  failedPaymentAttempts: number;
 
   // Relación
   @OneToOne(() => Shop, (shop) => shop.subscription)

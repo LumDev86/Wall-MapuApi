@@ -17,6 +17,7 @@ export default new DataSource({
   database: process.env.DB_DATABASE || 'postgres',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
+  migrationsTransactionMode: 'each',
   synchronize: false,
   dropSchema: false,
   logging: true,

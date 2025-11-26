@@ -1,3 +1,6 @@
+// ============================================
+// create-subscription.dto.ts
+// ============================================
 import { IsEnum, IsUUID, IsBoolean, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SubscriptionPlan } from '../entities/subscription.entity';
