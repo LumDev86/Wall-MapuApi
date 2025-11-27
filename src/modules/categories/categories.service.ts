@@ -10,6 +10,7 @@ import { CreateCategoryMultipartDto } from './dtos/create-category-multipart.dto
 import { UpdateCategoryDto } from './dtos/update-category.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
+import { Product } from '../products/entities/product.entity';
 
 @Injectable()
 export class CategoriesService {
@@ -18,6 +19,8 @@ export class CategoriesService {
     private categoryRepository: Repository<Category>,
     private readonly cloudinaryService: CloudinaryService,
     private redisService: RedisService,
+    @InjectRepository(Product)
+    private productRepository: Repository<Product>,
   ) {}
 
   async create(
@@ -210,4 +213,47 @@ export class CategoriesService {
       message: 'Categoría eliminada exitosamente',
     };
   }
+  
+  async findProductsByCategory(
+    categoryId: string,
+    page: number = 1,
+    limit: number = 20,
+  ) {
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `category:${categoryId}:products:page:${page}:limit:${limit}`;
+
+    // 🔥 1. Intentar traer desde cache
+    const cached = await this.redisService.getJSON(cacheKey);
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
+    // 🔥 2. Validar categoría
+    const category = await this.categoryRepository.findOne({ where: { id: categoryId } });
+    if (!category) throw new NotFoundException('Categoría no encontrada');
+
+    // 🔥 3. Traer productos paginados desde la base
+    const [products, total] = await this.productRepository.findAndCount({
+      where: { categoryId },
+      skip: offset,
+      take: limit,
+      order: { createdAt: 'DESC' },
+    });
+
+    const result = {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+      products,
+    };
+
+    // 🔥 4. Guardar en cache por 60 segundos
+    await this.redisService.setJSON(cacheKey, result, 60);
+
+    return result;
+  }
+
+
 }

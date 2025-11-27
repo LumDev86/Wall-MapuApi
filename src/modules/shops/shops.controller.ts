@@ -64,16 +64,6 @@ export class ShopsController {
       properties: {
         name: { type: 'string', example: 'Pet Shop Amigo Fiel' },
         description: { type: 'string', example: 'Veterinaria y pet shop' },
-        latitude: { 
-          type: 'number', 
-          example: -34.603722,
-          description: 'Latitud (opcional, se calcula automáticamente si no se provee)'
-        },
-        longitude: { 
-          type: 'number', 
-          example: -58.381592,
-          description: 'Longitud (opcional, se calcula automáticamente si no se provee)'
-        },
         address: { type: 'string', example: 'Av. Corrientes 1234' },
         province: { type: 'string', example: 'Buenos Aires' },
         city: { type: 'string', example: 'CABA' },

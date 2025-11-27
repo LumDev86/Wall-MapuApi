@@ -26,6 +26,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
+import { Query } from '@nestjs/common';
 
 @ApiTags('Categories')
 @Controller('categories')
@@ -102,4 +103,15 @@ export class CategoriesController {
   remove(@Param('id') id: string) {
     return this.categoriesService.remove(id);
   }
+
+  @Get(':id/products')
+  @ApiOperation({ summary: 'Obtener productos paginados por categoría' })
+  findProductsByCategory(
+    @Param('id') id: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.categoriesService.findProductsByCategory(id, Number(page), Number(limit));
+  }
+
 }

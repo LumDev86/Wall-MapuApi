@@ -49,22 +49,17 @@ export class ShopsService {
     let longitude: number;
     let formattedAddress: string;
 
-    // Si el frontend ya envió las coordenadas, usarlas directamente
-    if (createShopDto.latitude !== undefined && createShopDto.longitude !== undefined) {
-      latitude = createShopDto.latitude;
-      longitude = createShopDto.longitude;
-      formattedAddress = `${createShopDto.address}, ${createShopDto.city}, ${createShopDto.province}`;
-    } else {
-      // Si no, hacer geocoding de la dirección
-      const geocodingResult = await this.geocodingService.geocodeAddress(
-        createShopDto.address,
-        createShopDto.city,
-        createShopDto.province,
-      );
-      latitude = geocodingResult.latitude;
-      longitude = geocodingResult.longitude;
-      formattedAddress = geocodingResult.formattedAddress;
-    }
+    // SIEMPRE geocodificar
+    const geocodingResult = await this.geocodingService.geocodeAddress(
+      createShopDto.address,
+      createShopDto.city,
+      createShopDto.province,
+    );
+
+    latitude = geocodingResult.latitude;
+    longitude = geocodingResult.longitude;
+    formattedAddress = geocodingResult.formattedAddress;
+    
 
     // Subir logo si existe
     let logoUrl: string | undefined;
@@ -541,31 +536,21 @@ export class ShopsService {
     // Manejar actualización de coordenadas
     let needsGeocoding = false;
     
-    // Si se envían coordenadas explícitas, usarlas directamente
-    if (updateShopDto.latitude !== undefined && updateShopDto.longitude !== undefined) {
+    // Si cambia address/city/province recalcular coordenadas
+    if (updateShopDto.address || updateShopDto.city || updateShopDto.province) {
+      const geo = await this.geocodingService.geocodeAddress(
+        updateShopDto.address || shop.address,
+        updateShopDto.city || shop.city,
+        updateShopDto.province || shop.province,
+      );
+
       Object.assign(shop, {
         ...updateShopDto,
-        latitude: updateShopDto.latitude,
-        longitude: updateShopDto.longitude,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
       });
-    } 
-    // Si se actualiza la dirección sin coordenadas, hacer geocoding
-    else if (
-      updateShopDto.address ||
-      updateShopDto.city ||
-      updateShopDto.province
-    ) {
-      const { latitude, longitude } =
-        await this.geocodingService.geocodeAddress(
-          updateShopDto.address || shop.address,
-          updateShopDto.city || shop.city,
-          updateShopDto.province || shop.province,
-        );
-
-      Object.assign(shop, { ...updateShopDto, latitude, longitude });
-    } 
-    // Si no se actualiza dirección ni coordenadas, solo actualizar otros campos
-    else {
+    } else {
+      // Actualización normal sin recalcular coordenadas
       Object.assign(shop, updateShopDto);
     }
 
