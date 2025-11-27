@@ -95,7 +95,7 @@ export class ShopsService {
       longitude,
       logo: logoUrl,
       banner: bannerUrl,
-      owner,
+      owner: { id: owner.id },   // ← FIX CLAVE
       status: ShopStatus.PENDING_PAYMENT,
     });
 
@@ -449,7 +449,10 @@ export class ShopsService {
     });
 
     if (!shop) {
-      throw new NotFoundException('No tienes un local registrado');
+      return {
+        shop: null,
+        message: 'El usuario aún no tiene un local registrado',
+      };
     }
 
     return {
@@ -457,6 +460,7 @@ export class ShopsService {
       isOpenNow: this.isShopOpenNow(shop),
     };
   }
+
 
   async update(
     id: string,
