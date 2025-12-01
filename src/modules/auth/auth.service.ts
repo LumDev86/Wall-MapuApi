@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,8 +14,10 @@ import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
+import { UpdateLocationDto } from './dtos/update-location.dto';
 import { randomBytes } from 'crypto';
 import { MailService } from 'src/mail/mail.service';
+import { GeocodingService } from '../../common/services/geocoding.service';
 
 @Injectable()
 export class AuthService {
@@ -23,10 +26,11 @@ export class AuthService {
     private userRepository: Repository<User>,
     private jwtService: JwtService,
     private readonly mailService: MailService,
+    private readonly geocodingService: GeocodingService,
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const { email, password, name, phone, role } = registerDto;
+    const { email, password, name, phone, role, province, city, address } = registerDto;
 
     const existingUser = await this.userRepository.findOne({
       where: { email },
@@ -40,12 +44,36 @@ export class AuthService {
 
     const emailVerificationToken = randomBytes(32).toString('hex');
 
+    // Geocodificación automática si se proporciona dirección
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+
+    if (address) {
+      try {
+        const geoResult = await this.geocodingService.geocodeAddress(
+          address,
+          city,
+          province,
+        );
+        latitude = geoResult.latitude;
+        longitude = geoResult.longitude;
+      } catch (error) {
+        // Si falla la geocodificación, continuar sin coordenadas
+        console.warn(`Geocodificación falló para usuario ${email}:`, error.message);
+      }
+    }
+
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
       name,
       phone,
       role: role || UserRole.CLIENT,
+      province,
+      city,
+      address,
+      latitude,
+      longitude,
       emailVerificationToken,
     });
 
@@ -163,6 +191,45 @@ export class AuthService {
 
     return {
       message: 'Contraseña actualizada exitosamente',
+    };
+  }
+
+  async updateLocation(userId: string, updateLocationDto: UpdateLocationDto) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const { province, city, address } = updateLocationDto;
+
+    // Actualizar campos de dirección
+    if (province !== undefined) user.province = province;
+    if (city !== undefined) user.city = city;
+    user.address = address; // address es requerido
+
+    // Geocodificación automática
+    try {
+      const geoResult = await this.geocodingService.geocodeAddress(
+        address,
+        city || user.city,
+        province || user.province,
+      );
+      user.latitude = geoResult.latitude;
+      user.longitude = geoResult.longitude;
+    } catch (error) {
+      throw new BadRequestException(
+        `No se pudo geocodificar la dirección: ${error.message}`,
+      );
+    }
+
+    await this.userRepository.save(user);
+
+    return {
+      message: 'Ubicación actualizada exitosamente',
+      user: this.sanitizeUser(user),
     };
   }
 

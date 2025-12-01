@@ -12,6 +12,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { Product } from '../../products/entities/product.entity';
 import { Subscription } from '../../subscriptions/entities/subscription.entity';
+import { Review } from '../../reviews/entities/review.entity';
 
 export enum ShopType {
   RETAILER = 'retailer',
@@ -103,6 +104,9 @@ export class Shop {
 
   @OneToOne(() => Subscription, (subscription) => subscription.shop)
   subscription: Subscription;
+
+  @OneToMany(() => Review, (review) => review.shop)
+  reviews: Review[];
 
   @CreateDateColumn()
   createdAt: Date;

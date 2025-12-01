@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(npm run migration:run:*)",
+      "Bash(npm run typeorm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

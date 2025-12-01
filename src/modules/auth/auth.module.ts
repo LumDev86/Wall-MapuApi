@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller';
 import { User } from '../users/entities/user.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailModule } from 'src/mail/mail.module';
+import { GeocodingService } from '../../common/services/geocoding.service';
 
 @Module({
   imports: [
@@ -34,7 +35,7 @@ import { MailModule } from 'src/mail/mail.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, GeocodingService],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -10,6 +10,7 @@ import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dtos/create-product.dto';
 import { UpdateProductDto } from './dtos/update-product.dto';
 import { FilterProductsDto } from './dtos/filter-products.dto';
+import { SearchProductsDto } from './dtos/search-products.dto';
 import { User } from '../users/entities/user.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { Category } from '../categories/entities/category.entity';
@@ -243,7 +244,7 @@ export class ProductsService {
     // 🚀 CHECK CACHE PRIMERO
     const cacheKey = `product:${id}`;
     const cached = await this.redisService.getJSON(cacheKey);
-    
+
     if (cached) {
       return cached;
     }
@@ -261,6 +262,116 @@ export class ProductsService {
     await this.redisService.setJSON(cacheKey, product, 300);
 
     return product;
+  }
+
+  /**
+   * Búsqueda en tiempo real de productos con información de la tienda
+   * Optimizado para autocompletado mientras el usuario tipea
+   */
+  async searchProducts(searchDto: SearchProductsDto) {
+    const limit = searchDto.limit || 10;
+    const query = searchDto.query.trim();
+    const { latitude, longitude } = searchDto;
+
+    // 🚀 CHECK CACHE PRIMERO (incluir lat/lng en cache key)
+    const cacheKey = `products:search:${query}:${limit}:${latitude || 'null'}:${longitude || 'null'}`;
+    const cached = await this.redisService.getJSON(cacheKey);
+
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+
+    // Construcción de query con rating promedio y distancia opcional
+    const queryBuilder = this.productRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.shop', 'shop')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoin('shop.reviews', 'review')
+      .addSelect('COALESCE(ROUND(AVG(review.rating)::numeric, 1), 0)', 'shop_avgRating')
+      .addSelect('COUNT(review.id)', 'shop_reviewCount');
+
+    // Si se proporcionan coordenadas, calcular distancia usando Haversine
+    if (latitude !== undefined && longitude !== undefined) {
+      queryBuilder.addSelect(
+        `(
+          6371 * acos(
+            cos(radians(:latitude)) *
+            cos(radians(shop.latitude)) *
+            cos(radians(shop.longitude) - radians(:longitude)) +
+            sin(radians(:latitude)) *
+            sin(radians(shop.latitude))
+          )
+        )`,
+        'shop_distance'
+      );
+      queryBuilder.setParameter('latitude', latitude);
+      queryBuilder.setParameter('longitude', longitude);
+    }
+
+    queryBuilder
+      .where('product.isActive = :isActive', { isActive: true })
+      .andWhere('shop.isActive = :shopIsActive', { shopIsActive: true })
+      .andWhere(
+        '(LOWER(product.name) LIKE LOWER(:query) OR LOWER(product.brand) LIKE LOWER(:query) OR LOWER(product.description) LIKE LOWER(:query))',
+        { query: `%${query}%` }
+      )
+      .groupBy('product.id')
+      .addGroupBy('shop.id')
+      .addGroupBy('category.id');
+
+    // Ordenar por distancia si hay coordenadas, sino alfabéticamente
+    if (latitude !== undefined && longitude !== undefined) {
+      queryBuilder.orderBy('shop_distance', 'ASC');
+    } else {
+      queryBuilder.orderBy('product.name', 'ASC');
+    }
+
+    queryBuilder.take(limit);
+
+    const products = await queryBuilder.getRawAndEntities();
+
+    // Formatear respuesta con información relevante
+    const results = products.entities.map((product, index) => {
+      const rawData = products.raw[index];
+      const shopData: any = {
+        id: product.shop.id,
+        name: product.shop.name,
+        rating: parseFloat(rawData.shop_avgRating) || 0,
+        reviewCount: parseInt(rawData.shop_reviewCount) || 0,
+      };
+
+      // Agregar distancia solo si se proporcionaron coordenadas
+      if (latitude !== undefined && longitude !== undefined && rawData.shop_distance !== undefined) {
+        shopData.distance = parseFloat(parseFloat(rawData.shop_distance).toFixed(2)); // en km
+      }
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        brand: product.brand,
+        priceRetail: product.priceRetail,
+        priceWholesale: product.priceWholesale,
+        stock: product.stock,
+        images: product.images && product.images.length > 0 ? [product.images[0]] : [], // Solo primera imagen
+        category: product.category ? {
+          id: product.category.id,
+          name: product.category.name,
+        } : null,
+        shop: shopData,
+      };
+    });
+
+    const result = {
+      data: results,
+      total: results.length,
+      query: query,
+    };
+
+    // 🚀 GUARDAR EN CACHE (3 minutos - tiempo más corto para búsquedas)
+    await this.redisService.setJSON(cacheKey, result, 180);
+
+    return result;
   }
 
   async update(

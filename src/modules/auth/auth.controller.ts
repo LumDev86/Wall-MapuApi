@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Get,
   UseGuards,
+  Patch,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,7 @@ import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
+import { UpdateLocationDto } from './dtos/update-location.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -111,5 +113,27 @@ export class AuthController {
   })
   async getProfile(@CurrentUser() user: User) {
     return { user };
+  }
+
+  // -------------------------
+  // UPDATE LOCATION
+  // -------------------------
+  @Patch('location')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Actualizar ubicación del usuario' })
+  @ApiResponse({
+    status: 200,
+    description: 'Ubicación actualizada exitosamente',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado',
+  })
+  async updateLocation(
+    @CurrentUser() user: User,
+    @Body() updateLocationDto: UpdateLocationDto,
+  ) {
+    return this.authService.updateLocation(user.id, updateLocationDto);
   }
 }

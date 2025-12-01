@@ -25,6 +25,7 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dtos/create-product.dto';
 import { UpdateProductDto } from './dtos/update-product.dto';
 import { FilterProductsDto } from './dtos/filter-products.dto';
+import { SearchProductsDto } from './dtos/search-products.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -83,6 +84,89 @@ export class ProductsController {
   @ApiResponse({ status: 200, description: 'Lista de productos' })
   findAll(@Query() filters: FilterProductsDto) {
     return this.productsService.findAll(filters);
+  }
+
+  @Get('search')
+  @ApiOperation({
+    summary: 'Búsqueda en tiempo real de productos con información de tienda',
+    description: 'Endpoint optimizado para autocompletado. Busca productos mientras el usuario tipea y muestra la tienda con calificaciones. Si se proporciona geolocalización, ordena por distancia. Mínimo 2 caracteres requeridos.'
+  })
+  @ApiQuery({
+    name: 'query',
+    required: true,
+    type: String,
+    description: 'Término de búsqueda (mínimo 2 caracteres)',
+    example: 'Royal'
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Máximo de resultados (default: 10, max: 20)',
+    example: 10
+  })
+  @ApiQuery({
+    name: 'latitude',
+    required: false,
+    type: Number,
+    description: 'Latitud del usuario para ordenar por distancia',
+    example: -34.6037
+  })
+  @ApiQuery({
+    name: 'longitude',
+    required: false,
+    type: Number,
+    description: 'Longitud del usuario para ordenar por distancia',
+    example: -58.3816
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de productos con información de tienda',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              brand: { type: 'string' },
+              priceRetail: { type: 'number' },
+              priceWholesale: { type: 'number' },
+              stock: { type: 'number' },
+              images: { type: 'array', items: { type: 'string' } },
+              category: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                }
+              },
+              shop: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', example: 'uuid-tienda' },
+                  name: { type: 'string', example: 'PetShop San Martín' },
+                  rating: { type: 'number', example: 4.5, description: 'Calificación promedio (1-5)' },
+                  reviewCount: { type: 'number', example: 12, description: 'Cantidad de reseñas' },
+                  distance: { type: 'number', example: 2.5, description: 'Distancia en km (solo si se envió geolocalización)' },
+                }
+              }
+            }
+          }
+        },
+        total: { type: 'number' },
+        query: { type: 'string' },
+        cached: { type: 'boolean' }
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Query inválido (menos de 2 caracteres)' })
+  searchProducts(@Query() searchDto: SearchProductsDto) {
+    return this.productsService.searchProducts(searchDto);
   }
 
   @Get('shop/:shopId')

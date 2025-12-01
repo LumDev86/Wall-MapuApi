@@ -1,15 +1,19 @@
-import { 
-  IsEmail, 
-  IsString, 
-  MinLength, 
-  MaxLength, 
-  IsOptional, 
-  IsEnum, 
-  Matches, 
+import {
+  IsEmail,
+  IsString,
+  MinLength,
+  MaxLength,
+  IsOptional,
+  IsEnum,
+  Matches,
   IsPhoneNumber,
-  IsNotEmpty
+  IsNotEmpty,
+  IsNumber,
+  Min,
+  Max
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { UserRole } from '../../users/entities/user.entity';
 
 export class RegisterDto {
@@ -65,7 +69,7 @@ export class RegisterDto {
   phone?: string;
 
   @ApiPropertyOptional({
-    enum: UserRole, 
+    enum: UserRole,
     example: "client || retailer || wholesaler || admin",
     description: 'Rol del usuario en la plataforma',
     default: UserRole.CLIENT,
@@ -73,4 +77,31 @@ export class RegisterDto {
   @IsEnum(UserRole, { message: 'El rol debe ser CLIENT, RETAILER o ADMIN' })
   @IsOptional()
   role?: UserRole;
+
+  @ApiPropertyOptional({
+    example: 'Buenos Aires',
+    description: 'Provincia del usuario',
+  })
+  @IsString({ message: 'La provincia debe ser un texto' })
+  @IsOptional()
+  @MaxLength(100, { message: 'La provincia no puede tener más de 100 caracteres' })
+  province?: string;
+
+  @ApiPropertyOptional({
+    example: 'Ciudad Autónoma de Buenos Aires',
+    description: 'Ciudad del usuario',
+  })
+  @IsString({ message: 'La ciudad debe ser un texto' })
+  @IsOptional()
+  @MaxLength(100, { message: 'La ciudad no puede tener más de 100 caracteres' })
+  city?: string;
+
+  @ApiPropertyOptional({
+    example: 'Av. Corrientes 1234',
+    description: 'Domicilio del usuario',
+  })
+  @IsString({ message: 'El domicilio debe ser un texto' })
+  @IsOptional()
+  @MaxLength(255, { message: 'El domicilio no puede tener más de 255 caracteres' })
+  address?: string;
 }
