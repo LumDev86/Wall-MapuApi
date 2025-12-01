@@ -20,11 +20,12 @@ export class UpdateLocationDto {
   @MaxLength(100, { message: 'La ciudad no puede tener más de 100 caracteres' })
   city?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 'Av. Corrientes 1234',
     description: 'Domicilio del usuario',
   })
   @IsString({ message: 'El domicilio debe ser un texto' })
+  @IsOptional()
   @MaxLength(255, { message: 'El domicilio no puede tener más de 255 caracteres' })
-  address: string;
+  address?: string;
 }
