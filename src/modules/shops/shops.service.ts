@@ -407,9 +407,13 @@ export class ShopsService {
     return finalResult;
   }
 
-  async findOne(id: string) {
-    // 🚀 CHECK CACHE PRIMERO
-    const cacheKey = `shop:${id}`;
+  async findOne(id: string, page: number = 1, limit: number = 10) {
+    // Validar y normalizar parámetros de paginación
+    page = Math.max(1, Number(page) || 1);
+    limit = Math.min(100, Math.max(1, Number(limit) || 10));
+
+    // 🚀 CHECK CACHE PRIMERO (incluir paginación en clave)
+    const cacheKey = `shop:${id}:page:${page}:limit:${limit}`;
     const cached = await this.redisService.getJSON(cacheKey);
 
     if (cached) {
@@ -425,9 +429,38 @@ export class ShopsService {
       throw new NotFoundException('Local no encontrado');
     }
 
+    // Obtener productos paginados del shop
+    const skip = (page - 1) * limit;
+
+    const [products, totalProducts] = await this.productRepository.findAndCount({
+      where: {
+        shop: { id },
+        isActive: true,
+      },
+      relations: ['category'],
+      skip,
+      take: limit,
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+    const totalPages = Math.ceil(totalProducts / limit);
+
     const result = {
       ...this.sanitizeShop(shop),
       isOpenNow: this.isShopOpenNow(shop),
+      products: {
+        data: products,
+        pagination: {
+          total: totalProducts,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      },
     };
 
     // 🚀 GUARDAR EN CACHE (5 minutos)

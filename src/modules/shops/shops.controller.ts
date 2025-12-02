@@ -153,14 +153,29 @@ export class ShopsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener detalle de un local' })
+  @ApiOperation({
+    summary: 'Obtener detalle de un local con sus productos paginados',
+    description: `
+      Retorna el detalle del local incluyendo sus productos con paginación.
+
+      **Paginación de productos:**
+      - page: Número de página (default: 1)
+      - limit: Productos por página (default: 10, max: 100)
+    `,
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página para productos' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Cantidad de productos por página' })
   @ApiResponse({
     status: 200,
-    description: 'Detalle del local con información completa',
+    description: 'Detalle del local con información completa y productos paginados',
   })
   @ApiResponse({ status: 404, description: 'Local no encontrado' })
-  findOne(@Param('id') id: string) {
-    return this.shopsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.shopsService.findOne(id, page, limit);
   }
 
   @Patch(':id')
