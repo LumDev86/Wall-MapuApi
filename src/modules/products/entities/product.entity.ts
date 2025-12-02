@@ -40,6 +40,9 @@ export class Product {
   brand: string;
 
   @Column({ type: 'jsonb', nullable: true })
+  characteristics: Array<{ name: string; value: string }>;
+
+  @Column({ type: 'jsonb', nullable: true })
   images: string[];
 
   @Column({ default: true })

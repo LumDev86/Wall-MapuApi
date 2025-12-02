@@ -6,9 +6,13 @@ import {
   Min,
   IsUUID,
   ValidateIf,
+  IsArray,
+  ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
+import { CharacteristicDto } from './characteristic.dto';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -94,6 +98,22 @@ export class CreateProductDto {
   @IsString()
   @Transform(({ value }) => value?.trim())
   brand?: string;
+
+  @ApiPropertyOptional({
+    example: [
+      { name: 'Peso', value: '15 kg' },
+      { name: 'Edad', value: 'Adulto' },
+      { name: 'Raza', value: 'Todas las razas' },
+    ],
+    description: 'Características del producto (máximo 20)',
+    type: [CharacteristicDto],
+  })
+  @IsOptional()
+  @IsArray({ message: 'Las características deben ser un array' })
+  @ValidateNested({ each: true })
+  @Type(() => CharacteristicDto)
+  @ArrayMaxSize(20, { message: 'Máximo 20 características permitidas' })
+  characteristics?: CharacteristicDto[];
 
   @ApiProperty({
     example: 'uuid-de-categoria',
