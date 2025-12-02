@@ -9,17 +9,18 @@ export class CreateSubscriptionDto {
   @ApiProperty({
     enum: SubscriptionPlan,
     example: SubscriptionPlan.RETAILER,
-    description: 'Plan de suscripción',
+    description: 'Plan de suscripción (retailer o wholesaler)',
   })
   @IsEnum(SubscriptionPlan)
   plan: SubscriptionPlan;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 'uuid-del-shop',
-    description: 'ID del shop',
+    description: 'ID del shop (opcional - solo si ya tiene un shop creado)',
   })
+  @IsOptional()
   @IsUUID()
-  shopId: string;
+  shopId?: string;
 
   @ApiPropertyOptional({
     example: true,

@@ -38,45 +38,78 @@ export class SubscriptionsService {
   async create(createSubscriptionDto: CreateSubscriptionDto, user: User) {
     const { shopId, plan, autoRenew = true } = createSubscriptionDto;
 
-    // Verificar que el shop existe y pertenece al usuario
-    const shop = await this.shopRepository.findOne({
-      where: { id: shopId },
-      relations: ['owner', 'subscription'],
-    });
+    let shop: Shop | undefined;
 
-    if (!shop) {
-      throw new NotFoundException('Shop no encontrado');
-    }
+    // Si se proporciona shopId, validar el shop
+    if (shopId) {
+      const foundShop = await this.shopRepository.findOne({
+        where: { id: shopId },
+        relations: ['owner', 'subscription'],
+      });
 
-    if (shop.owner.id !== user.id) {
-      throw new ForbiddenException('No tienes permiso para crear una suscripción para este shop');
-    }
+      if (!foundShop) {
+        throw new NotFoundException('Shop no encontrado');
+      }
 
-    // Verificar que el plan coincide con el tipo de shop
-    if (
-      (plan === SubscriptionPlan.RETAILER && shop.type !== 'retailer') ||
-      (plan === SubscriptionPlan.WHOLESALER && shop.type !== 'wholesaler')
-    ) {
-      throw new BadRequestException(
-        `El plan ${plan} no coincide con el tipo de shop ${shop.type}`,
-      );
-    }
+      shop = foundShop;
 
-    // 🆕 Si ya tiene una suscripción PENDING o FAILED, reutilizarla
-    if (
-      shop.subscription &&
-      (shop.subscription.status === SubscriptionStatus.PENDING ||
-        shop.subscription.status === SubscriptionStatus.FAILED)
-    ) {
-      this.logger.log(
-        `Reintentando pago para suscripción existente: ${shop.subscription.id}`,
-      );
-      return this.retryPayment(shop.subscription.id, user);
-    }
+      if (shop.owner.id !== user.id) {
+        throw new ForbiddenException('No tienes permiso para crear una suscripción para este shop');
+      }
 
-    // Verificar si ya tiene una suscripción activa
-    if (shop.subscription && shop.subscription.status === SubscriptionStatus.ACTIVE) {
-      throw new BadRequestException('El shop ya tiene una suscripción activa');
+      // Verificar que el plan coincide con el tipo de shop
+      if (
+        (plan === SubscriptionPlan.RETAILER && shop.type !== 'retailer') ||
+        (plan === SubscriptionPlan.WHOLESALER && shop.type !== 'wholesaler')
+      ) {
+        throw new BadRequestException(
+          `El plan ${plan} no coincide con el tipo de shop ${shop.type}`,
+        );
+      }
+
+      // 🆕 Si el shop ya tiene una suscripción PENDING o FAILED, reutilizarla
+      if (
+        shop.subscription &&
+        (shop.subscription.status === SubscriptionStatus.PENDING ||
+          shop.subscription.status === SubscriptionStatus.FAILED)
+      ) {
+        this.logger.log(
+          `Reintentando pago para suscripción existente: ${shop.subscription.id}`,
+        );
+        return this.retryPayment(shop.subscription.id, user);
+      }
+
+      // Verificar si el shop ya tiene una suscripción activa
+      if (shop.subscription && shop.subscription.status === SubscriptionStatus.ACTIVE) {
+        throw new BadRequestException('El shop ya tiene una suscripción activa');
+      }
+    } else {
+      // Sin shopId: Verificar que el usuario no tenga ya una suscripción activa
+      const existingSubscription = await this.subscriptionRepository.findOne({
+        where: {
+          userId: user.id,
+          status: SubscriptionStatus.ACTIVE,
+        },
+      });
+
+      if (existingSubscription) {
+        throw new BadRequestException('Ya tienes una suscripción activa');
+      }
+
+      // Verificar si tiene suscripciones PENDING o FAILED para reintentar
+      const pendingSubscription = await this.subscriptionRepository.findOne({
+        where: {
+          userId: user.id,
+          status: In([SubscriptionStatus.PENDING, SubscriptionStatus.FAILED]),
+        },
+      });
+
+      if (pendingSubscription) {
+        this.logger.log(
+          `Reintentando pago para suscripción existente: ${pendingSubscription.id}`,
+        );
+        return this.retryPayment(pendingSubscription.id, user);
+      }
     }
 
     // Calcular fechas
@@ -94,7 +127,8 @@ export class SubscriptionsService {
       endDate,
       amount,
       autoRenew,
-      shopId,
+      userId: user.id,
+      shopId: shopId || undefined,
       nextPaymentDate: endDate,
       failedPaymentAttempts: 0,
     });
@@ -106,16 +140,18 @@ export class SubscriptionsService {
       const { id: preferenceId, initPoint } =
         await this.mercadoPagoService.createSubscriptionPreference(
           subscription.id,
-          shopId,
+          shopId || user.id, // Usar userId si no hay shopId
           plan,
         );
 
       subscription.mercadoPagoPreapprovalId = preferenceId;
       await this.subscriptionRepository.save(subscription);
 
-      // Invalidar cache
-      await this.redisService.del(`shop:${shopId}`);
-      await this.redisService.deleteKeysByPattern('shops:location:*');
+      // Invalidar cache solo si hay shop
+      if (shopId) {
+        await this.redisService.del(`shop:${shopId}`);
+        await this.redisService.deleteKeysByPattern('shops:location:*');
+      }
 
       return {
         message: 'Suscripción creada exitosamente. Procede al pago.',
@@ -374,6 +410,48 @@ export class SubscriptionsService {
       canRetryPayment,
       attemptsRemaining: canRetryPayment
         ? 5 - shop.subscription.failedPaymentAttempts
+        : null,
+    };
+  }
+
+  /**
+   * 🆕 Obtener mi suscripción (usuario autenticado)
+   */
+  async findMySubscription(user: User) {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: {
+        userId: user.id,
+        status: In([
+          SubscriptionStatus.ACTIVE,
+          SubscriptionStatus.PENDING,
+          SubscriptionStatus.FAILED,
+        ]),
+      },
+      relations: ['shop'],
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+    if (!subscription) {
+      return {
+        subscription: null,
+        message: 'No tienes ninguna suscripción',
+      };
+    }
+
+    const canRetryPayment =
+      subscription.status === SubscriptionStatus.PENDING ||
+      subscription.status === SubscriptionStatus.FAILED;
+
+    return {
+      subscription,
+      daysUntilExpiration: subscription.status === SubscriptionStatus.ACTIVE
+        ? this.getDaysUntilExpiration(subscription.endDate)
+        : null,
+      canRetryPayment,
+      attemptsRemaining: canRetryPayment
+        ? 5 - subscription.failedPaymentAttempts
         : null,
     };
   }

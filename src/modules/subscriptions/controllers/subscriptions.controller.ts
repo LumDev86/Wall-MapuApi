@@ -124,14 +124,39 @@ export class SubscriptionsController {
     return this.subscriptionsService.getPaymentStatus(id, user);
   }
 
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Obtener mi suscripción (usuario autenticado)',
+    description: `
+      Obtiene la suscripción del usuario autenticado.
+
+      Funciona tanto si tienes un shop asociado como si no.
+
+      Retorna:
+      - Datos de la suscripción (si existe)
+      - Días hasta la expiración
+      - Si puede reintentar el pago (canRetryPayment)
+      - Intentos restantes (attemptsRemaining)
+    `
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Información de tu suscripción',
+  })
+  findMySubscription(@CurrentUser() user: User) {
+    return this.subscriptionsService.findMySubscription(user);
+  }
+
   @Get('shop/:shopId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Obtener suscripción de un shop (HU-011)',
     description: `
       Ver el estado actual de la suscripción del shop.
-      
+
       Retorna:
       - Datos de la suscripción
       - Días hasta la expiración

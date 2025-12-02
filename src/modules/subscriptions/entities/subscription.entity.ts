@@ -5,9 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToOne,
+  ManyToOne,
   JoinColumn,
 } from 'typeorm';
 import { Shop } from '../../shops/entities/shop.entity';
+import { User } from '../../users/entities/user.entity';
 
 export enum SubscriptionPlan {
   RETAILER = 'retailer',
@@ -72,12 +74,20 @@ export class Subscription {
   @Column({ type: 'int', default: 0 })
   failedPaymentAttempts: number;
 
-  // Relación
-  @OneToOne(() => Shop, (shop) => shop.subscription)
+  // Relación con Usuario (obligatoria)
+  @ManyToOne(() => User, (user) => user.id, { eager: true })
+  @JoinColumn({ name: 'userId' })
+  user: User;
+
+  @Column()
+  userId: string;
+
+  // Relación con Shop (opcional)
+  @OneToOne(() => Shop, (shop) => shop.subscription, { nullable: true })
   @JoinColumn({ name: 'shopId' })
   shop: Shop;
 
-  @Column()
+  @Column({ nullable: true })
   shopId: string;
 
   @CreateDateColumn()
