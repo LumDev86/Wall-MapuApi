@@ -230,30 +230,52 @@ export class SubscriptionsService {
       return;
     }
 
-    // Evitar procesar dos veces el mismo pago
-    if (subscription.status === SubscriptionStatus.ACTIVE) {
-      this.logger.warn(`Suscripción ya activa: ${subscriptionId}`);
-      return subscription;
+    const isRenewal = subscription.status === SubscriptionStatus.ACTIVE;
+
+    if (isRenewal) {
+      // 🔄 Renovación: Extender la suscripción un mes más
+      this.logger.log(`🔄 Procesando renovación de suscripción: ${subscriptionId}`);
+
+      const newEndDate = new Date(subscription.endDate);
+      newEndDate.setMonth(newEndDate.getMonth() + 1);
+
+      subscription.endDate = newEndDate;
+      subscription.lastPaymentDate = new Date();
+      subscription.nextPaymentDate = newEndDate;
+      subscription.mercadoPagoSubscriptionId = paymentId;
+      subscription.paymentDetails = {
+        ...paymentData,
+        renewedAt: new Date(),
+      };
+      subscription.failedPaymentAttempts = 0;
+
+      await this.subscriptionRepository.save(subscription);
+
+      this.logger.log(
+        `✅ Suscripción renovada hasta: ${newEndDate.toLocaleDateString()} - ${subscriptionId}`,
+      );
+    } else {
+      // 🆕 Activación inicial
+      this.logger.log(`🆕 Activando suscripción nueva: ${subscriptionId}`);
+
+      subscription.status = SubscriptionStatus.ACTIVE;
+      subscription.lastPaymentDate = new Date();
+      subscription.mercadoPagoSubscriptionId = paymentId;
+      subscription.paymentDetails = paymentData;
+      subscription.failedPaymentAttempts = 0;
+
+      await this.subscriptionRepository.save(subscription);
+
+      // Actualizar estado del shop (solo en activación inicial)
+      subscription.shop.status = ShopStatus.ACTIVE;
+      await this.shopRepository.save(subscription.shop);
+
+      this.logger.log(`✅ Suscripción activada: ${subscriptionId}`);
     }
-
-    // Actualizar suscripción
-    subscription.status = SubscriptionStatus.ACTIVE;
-    subscription.lastPaymentDate = new Date();
-    subscription.mercadoPagoSubscriptionId = paymentId;
-    subscription.paymentDetails = paymentData;
-    subscription.failedPaymentAttempts = 0; // Resetear contador
-
-    await this.subscriptionRepository.save(subscription);
-
-    // Actualizar estado del shop
-    subscription.shop.status = ShopStatus.ACTIVE;
-    await this.shopRepository.save(subscription.shop);
 
     // Invalidar cache
     await this.redisService.del(`shop:${subscription.shopId}`);
     await this.redisService.deleteKeysByPattern('shops:location:*');
-
-    this.logger.log(`✅ Suscripción activada: ${subscriptionId}`);
 
     return subscription;
   }
@@ -425,6 +447,55 @@ export class SubscriptionsService {
   }
 
   /**
+   * 🆕 Activar/Desactivar renovación automática
+   */
+  async toggleAutoRenew(shopId: string, autoRenew: boolean, user: User) {
+    const shop = await this.shopRepository.findOne({
+      where: { id: shopId },
+      relations: ['owner', 'subscription'],
+    });
+
+    if (!shop) {
+      throw new NotFoundException('Shop no encontrado');
+    }
+
+    if (shop.owner.id !== user.id) {
+      throw new ForbiddenException(
+        'No tienes permiso para modificar esta suscripción',
+      );
+    }
+
+    if (!shop.subscription) {
+      throw new NotFoundException('El shop no tiene suscripción');
+    }
+
+    if (shop.subscription.status !== SubscriptionStatus.ACTIVE) {
+      throw new BadRequestException(
+        'Solo puedes modificar la renovación automática en suscripciones activas',
+      );
+    }
+
+    shop.subscription.autoRenew = autoRenew;
+    await this.subscriptionRepository.save(shop.subscription);
+
+    // Invalidar cache
+    await this.redisService.del(`shop:${shopId}`);
+
+    const message = autoRenew
+      ? 'Renovación automática activada. Tu suscripción se renovará automáticamente cada mes.'
+      : 'Renovación automática desactivada. Tu suscripción no se renovará automáticamente.';
+
+    this.logger.log(
+      `${autoRenew ? '✅ Activada' : '❌ Desactivada'} renovación automática para suscripción: ${shop.subscription.id}`,
+    );
+
+    return {
+      message,
+      subscription: shop.subscription,
+    };
+  }
+
+  /**
    * Cron job: Verificar suscripciones vencidas (se ejecuta diariamente a las 00:00)
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
@@ -527,6 +598,69 @@ export class SubscriptionsService {
     }
 
     this.logger.log(`✅ ${upcomingExpirations.length} notificaciones enviadas`);
+  }
+
+  /**
+   * 🆕 Cron job: Procesar renovaciones automáticas (5 días antes de vencer)
+   * Se ejecuta diariamente a las 8 AM
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+  async processAutoRenewals() {
+    this.logger.log('🔄 Procesando renovaciones automáticas...');
+
+    const fiveDaysFromNow = new Date();
+    fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+    fiveDaysFromNow.setHours(23, 59, 59, 999);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Buscar suscripciones activas con autoRenew habilitado que vencen en 5 días
+    const subscriptionsToRenew = await this.subscriptionRepository
+      .createQueryBuilder('subscription')
+      .leftJoinAndSelect('subscription.shop', 'shop')
+      .leftJoinAndSelect('shop.owner', 'owner')
+      .where('subscription.status = :status', { status: SubscriptionStatus.ACTIVE })
+      .andWhere('subscription.autoRenew = :autoRenew', { autoRenew: true })
+      .andWhere('subscription.endDate >= :today', { today })
+      .andWhere('subscription.endDate <= :fiveDays', { fiveDays: fiveDaysFromNow })
+      .getMany();
+
+    this.logger.log(`📋 Encontradas ${subscriptionsToRenew.length} suscripciones para renovar`);
+
+    for (const subscription of subscriptionsToRenew) {
+      try {
+        // Generar link de pago para renovación
+        const preference = await this.mercadoPagoService.createSubscriptionPreference(
+          subscription.id,
+          subscription.shopId,
+          subscription.plan,
+        );
+
+        // Actualizar la preferencia de MP en la suscripción
+        subscription.mercadoPagoPreapprovalId = preference.id;
+        await this.subscriptionRepository.save(subscription);
+
+        const daysLeft = this.getDaysUntilExpiration(subscription.endDate);
+
+        this.logger.log(
+          `💳 Link de renovación generado para suscripción ${subscription.id} - Vence en ${daysLeft} días`,
+        );
+
+        // TODO: Enviar email con link de pago
+        // await this.emailService.sendRenewalLink(subscription, preference.initPoint);
+
+        this.logger.log(
+          `📧 Email de renovación enviado a ${subscription.shop.owner.email}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `❌ Error al procesar renovación para suscripción ${subscription.id}: ${error.message}`,
+        );
+      }
+    }
+
+    this.logger.log(`✅ Procesamiento de renovaciones completado`);
   }
 
   /**

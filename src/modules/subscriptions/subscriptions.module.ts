@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -9,6 +9,7 @@ import { MercadoPagoService } from './services/mercadopago.service';
 import { SubscriptionsController } from './controllers/subscriptions.controller';
 import { WebhooksController } from './controllers/webhooks.controller';
 import { RedisModule } from '../../common/redis/redis.module';
+import { BannersModule } from '../banners/banners.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { RedisModule } from '../../common/redis/redis.module';
     ConfigModule,
     ScheduleModule.forRoot(), // Para los cron jobs
     RedisModule,
+    forwardRef(() => BannersModule), // Importar BannersModule para el webhook
   ],
   controllers: [SubscriptionsController, WebhooksController],
   providers: [SubscriptionsService, MercadoPagoService],

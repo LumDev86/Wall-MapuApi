@@ -6,10 +6,13 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { SubscriptionsService } from '../services/subscriptions.service';
 import { MercadoPagoService } from '../services/mercadopago.service';
+import { BannersService } from '../../banners/services/banners.service';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -19,6 +22,8 @@ export class WebhooksController {
   constructor(
     private readonly subscriptionsService: SubscriptionsService,
     private readonly mercadoPagoService: MercadoPagoService,
+    @Inject(forwardRef(() => BannersService))
+    private readonly bannersService: BannersService,
   ) {}
 
   @Post('mercadopago')
@@ -69,22 +74,36 @@ export class WebhooksController {
           metadata: paymentInfo.metadata,
         };
 
+        // Determinar si es un pago de banner o suscripción
+        const paymentType = paymentInfo.metadata?.type || 'subscription';
+        const isBannerPayment = paymentType === 'banner';
+
+        this.logger.log(`📦 Tipo de pago: ${paymentType}`);
+
         // 🟢 Pago aprobado
         if (paymentInfo.status === 'approved') {
           this.logger.log(`✅ Pago aprobado: ${paymentId}`);
-          
-          await this.subscriptionsService.processApprovedPayment(paymentData);
 
-          return { message: 'Pago aprobado procesado exitosamente' };
+          if (isBannerPayment) {
+            await this.bannersService.processApprovedPayment(paymentData);
+            return { message: 'Pago de banner aprobado procesado exitosamente' };
+          } else {
+            await this.subscriptionsService.processApprovedPayment(paymentData);
+            return { message: 'Pago de suscripción aprobado procesado exitosamente' };
+          }
         }
 
         // 🔴 Pago rechazado
         if (paymentInfo.status === 'rejected') {
           this.logger.warn(`❌ Pago rechazado: ${paymentId} - Detalle: ${paymentInfo.statusDetail}`);
-          
-          await this.subscriptionsService.processRejectedPayment(paymentData);
 
-          return { message: 'Pago rechazado registrado' };
+          if (isBannerPayment) {
+            await this.bannersService.processRejectedPayment(paymentData);
+            return { message: 'Pago de banner rechazado registrado' };
+          } else {
+            await this.subscriptionsService.processRejectedPayment(paymentData);
+            return { message: 'Pago de suscripción rechazado registrado' };
+          }
         }
 
         // 🟡 Pago pendiente
@@ -96,10 +115,14 @@ export class WebhooksController {
         // 🟠 Pago cancelado o fallido
         if (paymentInfo.status === 'cancelled' || paymentInfo.status === 'refunded') {
           this.logger.warn(`⚠️ Pago cancelado/reembolsado: ${paymentId}`);
-          
-          await this.subscriptionsService.processFailedPayment(paymentData);
 
-          return { message: 'Pago cancelado registrado' };
+          if (isBannerPayment) {
+            await this.bannersService.processRejectedPayment(paymentData);
+            return { message: 'Pago de banner cancelado registrado' };
+          } else {
+            await this.subscriptionsService.processFailedPayment(paymentData);
+            return { message: 'Pago de suscripción cancelado registrado' };
+          }
         }
 
         // Otros estados

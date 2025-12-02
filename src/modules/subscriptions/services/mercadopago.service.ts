@@ -149,4 +149,32 @@ export class MercadoPagoService {
       throw error;
     }
   }
+
+  /**
+   * Crear preferencia de pago genérica
+   */
+  async createPreference(preferenceData: any): Promise<{ id: string; initPoint: string }> {
+    try {
+      const response = await this.preference.create({ body: preferenceData });
+
+      if (!response.id || !response.init_point) {
+        this.logger.error('Respuesta de MP sin ID o init_point:', response);
+        throw new BadRequestException(
+          'Error en la respuesta de Mercado Pago: datos incompletos',
+        );
+      }
+
+      this.logger.log(`Preferencia creada: ${response.id}`);
+
+      return {
+        id: response.id,
+        initPoint: response.init_point,
+      };
+    } catch (error) {
+      this.logger.error('Error al crear preferencia de MP:', error);
+      throw new BadRequestException(
+        `Error al crear link de pago: ${error.message}`,
+      );
+    }
+  }
 }

@@ -15,6 +15,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiBody,
 } from '@nestjs/swagger';
 import { SubscriptionsService } from '../services/subscriptions.service';
 import {
@@ -154,11 +155,11 @@ export class SubscriptionsController {
   @Delete('shop/:shopId/cancel')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Cancelar suscripción (HU-011)',
     description: `
       Cancela la renovación automática de la suscripción.
-      
+
       El shop permanece activo hasta la fecha de vencimiento actual.
     `
   })
@@ -168,6 +169,53 @@ export class SubscriptionsController {
   })
   cancel(@Param('shopId') shopId: string, @CurrentUser() user: User) {
     return this.subscriptionsService.cancel(shopId, user);
+  }
+
+  @Post('shop/:shopId/auto-renew')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Activar/Desactivar renovación automática',
+    description: `
+      Permite activar o desactivar la renovación automática de la suscripción mensual.
+
+      Cuando está activada:
+      - El sistema generará automáticamente un link de pago 5 días antes del vencimiento
+      - Al pagar, la suscripción se extenderá un mes más automáticamente
+      - Recibirás un email con el link de pago
+
+      Cuando está desactivada:
+      - La suscripción expirará al finalizar el período actual
+      - Deberás renovar manualmente si deseas continuar
+    `
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['autoRenew'],
+      properties: {
+        autoRenew: {
+          type: 'boolean',
+          example: true,
+          description: 'true para activar, false para desactivar'
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Renovación automática actualizada exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'La suscripción debe estar activa para modificar la renovación automática',
+  })
+  toggleAutoRenew(
+    @Param('shopId') shopId: string,
+    @Body('autoRenew') autoRenew: boolean,
+    @CurrentUser() user: User,
+  ) {
+    return this.subscriptionsService.toggleAutoRenew(shopId, autoRenew, user);
   }
 
   @Get('stats')

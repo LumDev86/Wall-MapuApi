@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm run build:*)",
       "Bash(npm run migration:run:*)",
-      "Bash(npm run typeorm:*)"
+      "Bash(npm run typeorm:*)",
+      "Bash(npm run migration:generate:*)"
     ],
     "deny": [],
     "ask": []
