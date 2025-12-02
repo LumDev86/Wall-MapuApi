@@ -434,7 +434,7 @@ export class ShopsService {
 
     const [products, totalProducts] = await this.productRepository.findAndCount({
       where: {
-        shop: { id },
+        shopId: id,
         isActive: true,
       },
       relations: ['category'],
