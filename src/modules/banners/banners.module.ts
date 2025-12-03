@@ -4,7 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { BannersController } from './banners.controller';
 import { BannersService } from './services/banners.service';
 import { Banner } from './entities/banner.entity';
-import { MercadoPagoService } from '../subscriptions/services/mercadopago.service';
+import { MercadoPagoService } from '../../common/services/mercadopago.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Module({

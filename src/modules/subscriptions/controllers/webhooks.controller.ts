@@ -2,17 +2,16 @@ import {
   Controller,
   Post,
   Body,
-  Headers,
   HttpCode,
   HttpStatus,
   Logger,
-  Inject,
-  forwardRef,
+  Headers,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SubscriptionsService } from '../services/subscriptions.service';
-import { MercadoPagoService } from '../services/mercadopago.service';
-import { BannersService } from '../../banners/services/banners.service';
+import { MercadoPagoService } from '../../../common/services/mercadopago.service';
+import { MercadoPagoWebhookDto } from '../dtos';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -22,191 +21,132 @@ export class WebhooksController {
   constructor(
     private readonly subscriptionsService: SubscriptionsService,
     private readonly mercadoPagoService: MercadoPagoService,
-    @Inject(forwardRef(() => BannersService))
-    private readonly bannersService: BannersService,
   ) {}
 
   @Post('mercadopago')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: 'Webhook de Mercado Pago',
-    description: 'Recibe notificaciones de pagos desde Mercado Pago (aprobados, rechazados, fallidos)'
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Webhook procesado correctamente',
-  })
+  @ApiOperation({ summary: 'Webhook de Mercado Pago para notificaciones de pago' })
+  @ApiResponse({ status: 200, description: 'Notificación procesada' })
+  @ApiResponse({ status: 400, description: 'Notificación inválida' })
   async handleMercadoPagoWebhook(
-    @Body() body: any,
-    @Headers('x-signature') signature: string,
-    @Headers('x-request-id') requestId: string,
+    @Body() webhookData: MercadoPagoWebhookDto,
+    @Headers('x-signature') signature?: string,
+    @Headers('x-request-id') requestId?: string,
   ) {
-    this.logger.log(`📨 Webhook recibido - Request ID: ${requestId}`);
-    this.logger.debug(`Body: ${JSON.stringify(body)}`);
+    this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    this.logger.log('🔔 WEBHOOK RECIBIDO DE MERCADO PAGO');
+    this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    this.logger.log(`📋 Request ID: ${requestId}`);
+    this.logger.log(`📦 Tipo: ${webhookData.type}`);
+    this.logger.log(`🎬 Acción: ${webhookData.action}`);
+    this.logger.log(`📄 Data: ${JSON.stringify(webhookData.data, null, 2)}`);
 
     try {
-      // Validar firma (opcional pero recomendado en producción)
-      // const isValid = this.mercadoPagoService.verifyWebhookSignature(signature, body);
-      // if (!isValid) {
-      //   this.logger.error('❌ Firma inválida');
-      //   return { message: 'Firma inválida' };
-      // }
-
-      const { type, action, data } = body;
-
-      // Solo procesar notificaciones de pagos
-      if (type === 'payment') {
-        const paymentId = data.id;
-
-        this.logger.log(`💳 Procesando pago: ${paymentId} - Acción: ${action}`);
-
-        // Obtener información del pago desde Mercado Pago
-        const paymentInfo = await this.mercadoPagoService.processPaymentNotification(paymentId);
-
-        const paymentData = {
-          id: paymentInfo.id,
-          external_reference: paymentInfo.externalReference,
-          status: paymentInfo.status,
-          status_detail: paymentInfo.statusDetail,
-          transaction_amount: paymentInfo.transactionAmount,
-          date_approved: paymentInfo.dateApproved,
-          payer_email: paymentInfo.payerEmail,
-          metadata: paymentInfo.metadata,
-        };
-
-        // Determinar si es un pago de banner o suscripción
-        const paymentType = paymentInfo.metadata?.type || 'subscription';
-        const isBannerPayment = paymentType === 'banner';
-
-        this.logger.log(`📦 Tipo de pago: ${paymentType}`);
-
-        // 🟢 Pago aprobado
-        if (paymentInfo.status === 'approved') {
-          this.logger.log(`✅ Pago aprobado: ${paymentId}`);
-
-          if (isBannerPayment) {
-            await this.bannersService.processApprovedPayment(paymentData);
-            return { message: 'Pago de banner aprobado procesado exitosamente' };
-          } else {
-            await this.subscriptionsService.processApprovedPayment(paymentData);
-            return { message: 'Pago de suscripción aprobado procesado exitosamente' };
-          }
-        }
-
-        // 🔴 Pago rechazado
-        if (paymentInfo.status === 'rejected') {
-          this.logger.warn(`❌ Pago rechazado: ${paymentId} - Detalle: ${paymentInfo.statusDetail}`);
-
-          if (isBannerPayment) {
-            await this.bannersService.processRejectedPayment(paymentData);
-            return { message: 'Pago de banner rechazado registrado' };
-          } else {
-            await this.subscriptionsService.processRejectedPayment(paymentData);
-            return { message: 'Pago de suscripción rechazado registrado' };
-          }
-        }
-
-        // 🟡 Pago pendiente
-        if (paymentInfo.status === 'pending') {
-          this.logger.log(`⏳ Pago pendiente: ${paymentId}`);
-          return { message: 'Pago pendiente - esperando confirmación' };
-        }
-
-        // 🟠 Pago cancelado o fallido
-        if (paymentInfo.status === 'cancelled' || paymentInfo.status === 'refunded') {
-          this.logger.warn(`⚠️ Pago cancelado/reembolsado: ${paymentId}`);
-
-          if (isBannerPayment) {
-            await this.bannersService.processRejectedPayment(paymentData);
-            return { message: 'Pago de banner cancelado registrado' };
-          } else {
-            await this.subscriptionsService.processFailedPayment(paymentData);
-            return { message: 'Pago de suscripción cancelado registrado' };
-          }
-        }
-
-        // Otros estados
-        this.logger.warn(`⚠️ Estado de pago no manejado: ${paymentInfo.status}`);
-        return { message: `Estado ${paymentInfo.status} recibido` };
+      // Validar que sea una notificación de pago
+      if (webhookData.type !== 'payment') {
+        this.logger.log('⏭️ No es una notificación de pago, ignorando...');
+        return { message: 'Notificación ignorada' };
       }
 
-      // Otros tipos de notificaciones
-      this.logger.log(`📦 Tipo de notificación no procesada: ${type}`);
-      return { message: 'Notificación recibida' };
+      // Validar que tenga data.id
+      if (!webhookData.data?.id) {
+        this.logger.error('❌ Notificación sin data.id');
+        throw new BadRequestException('Notificación inválida: falta data.id');
+      }
 
+      const paymentId = webhookData.data.id;
+      this.logger.log(`🔍 Obteniendo información del pago: ${paymentId}`);
+
+      // Obtener información completa del pago desde MP
+      const paymentInfo =
+        await this.mercadoPagoService.processPaymentNotification(paymentId);
+
+      this.logger.log(`💳 Estado del pago: ${paymentInfo.status}`);
+      this.logger.log(
+        `📝 External Reference: ${paymentInfo.externalReference}`,
+      );
+      this.logger.log(`🏷️ Metadata: ${JSON.stringify(paymentInfo.metadata)}`);
+
+      // Verificar que sea una suscripción (y no un banner)
+      const metadata = paymentInfo.metadata || {};
+      if (metadata.type !== 'subscription') {
+        this.logger.log('⏭️ No es un pago de suscripción, ignorando...');
+        return { message: 'No es una suscripción' };
+      }
+
+      // Procesar según el estado del pago
+      let result;
+      switch (paymentInfo.status) {
+        case 'approved':
+          this.logger.log('✅ Pago APROBADO - Activando suscripción...');
+          result =
+            await this.subscriptionsService.processApprovedPayment(paymentInfo);
+          this.logger.log(`🎉 Suscripción activada: ${result.id}`);
+          break;
+
+        case 'rejected':
+        case 'cancelled':
+          this.logger.warn('❌ Pago RECHAZADO/CANCELADO');
+          result =
+            await this.subscriptionsService.processRejectedPayment(paymentInfo);
+          break;
+
+        case 'pending':
+        case 'in_process':
+        case 'in_mediation':
+          this.logger.log('⏳ Pago PENDIENTE - No se toma acción aún');
+          return {
+            message: 'Pago pendiente, esperando confirmación',
+            status: paymentInfo.status,
+          };
+
+        case 'refunded':
+        case 'charged_back':
+          this.logger.warn('💸 Pago REEMBOLSADO/CONTRACARGO');
+          // TODO: Implementar lógica de reembolso si es necesario
+          return {
+            message: 'Pago reembolsado',
+            status: paymentInfo.status,
+          };
+
+        default:
+          this.logger.warn(`⚠️ Estado desconocido: ${paymentInfo.status}`);
+          return {
+            message: 'Estado de pago desconocido',
+            status: paymentInfo.status,
+          };
+      }
+
+      this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      this.logger.log('✅ WEBHOOK PROCESADO EXITOSAMENTE');
+      this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      return {
+        message: 'Webhook procesado exitosamente',
+        subscriptionId: result?.id,
+        status: result?.status,
+      };
     } catch (error) {
-      this.logger.error(`❌ Error procesando webhook: ${error.message}`, error.stack);
-      
-      // ⚠️ IMPORTANTE: Devolver 200 para que MP no reintente infinitamente
-      // MP reintenta webhooks que devuelven error, pero queremos registrar el fallo
-      return { message: 'Error procesado', error: error.message };
+      this.logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      this.logger.error('❌ ERROR AL PROCESAR WEBHOOK');
+      this.logger.error(`📛 Error: ${error.message}`);
+      this.logger.error(`📚 Stack: ${error.stack}`);
+      this.logger.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      // No lanzar error para que MP no reintente
+      return {
+        message: 'Error procesando webhook',
+        error: error.message,
+      };
     }
   }
 
   @Post('test-webhook')
-  @ApiExcludeEndpoint() // Ocultar en producción
-  @ApiOperation({ 
-    summary: 'Test webhook (solo desarrollo)',
-    description: 'Simular un webhook de Mercado Pago para testing'
-  })
-  async testWebhook(@Body() body: any) {
-    this.logger.log('🧪 Test webhook ejecutado');
-    
-    const { subscriptionId, status = 'approved' } = body;
-
-    if (!subscriptionId) {
-      return { 
-        error: 'subscriptionId es requerido',
-        example: { subscriptionId: 'uuid-here', status: 'approved' }
-      };
-    }
-
-    // Simular diferentes tipos de pagos
-    const testPayments = {
-      approved: {
-        id: `test-payment-${Date.now()}`,
-        external_reference: subscriptionId,
-        status: 'approved',
-        status_detail: 'accredited',
-        transaction_amount: 5000,
-        date_approved: new Date().toISOString(),
-        payer_email: 'test@test.com',
-        metadata: {},
-      },
-      rejected: {
-        id: `test-payment-${Date.now()}`,
-        external_reference: subscriptionId,
-        status: 'rejected',
-        status_detail: 'cc_rejected_insufficient_amount',
-        transaction_amount: 5000,
-        payer_email: 'test@test.com',
-        metadata: {},
-      },
-      failed: {
-        id: `test-payment-${Date.now()}`,
-        external_reference: subscriptionId,
-        status: 'cancelled',
-        status_detail: 'by_payer',
-        transaction_amount: 5000,
-        payer_email: 'test@test.com',
-        metadata: {},
-      },
-    };
-
-    const testPayment = testPayments[status] || testPayments.approved;
-
-    // Procesar según el estado
-    if (status === 'approved') {
-      await this.subscriptionsService.processApprovedPayment(testPayment);
-    } else if (status === 'rejected') {
-      await this.subscriptionsService.processRejectedPayment(testPayment);
-    } else if (status === 'failed') {
-      await this.subscriptionsService.processFailedPayment(testPayment);
-    }
-
-    return { 
-      message: `Test webhook ${status} procesado`,
-      payment: testPayment 
-    };
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Endpoint de prueba para testear webhooks manualmente' })
+  async testWebhook(@Body() testData: any) {
+    this.logger.log('🧪 TEST WEBHOOK RECIBIDO');
+    this.logger.log(JSON.stringify(testData, null, 2));
+    return { message: 'Test webhook recibido', data: testData };
   }
 }

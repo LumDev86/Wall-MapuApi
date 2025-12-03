@@ -53,10 +53,10 @@ export class Subscription {
 
   // Mercado Pago
   @Column({ nullable: true })
-  mercadoPagoSubscriptionId: string;
+  mercadoPagoSubscriptionId?: string;
 
   @Column({ nullable: true })
-  mercadoPagoPreapprovalId: string;
+  mercadoPagoPreapprovalId?: string;
 
   @Column({ type: 'jsonb', nullable: true })
   paymentDetails: any;

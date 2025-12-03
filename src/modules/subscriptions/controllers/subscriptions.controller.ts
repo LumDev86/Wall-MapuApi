@@ -1,13 +1,10 @@
-// ============================================
-// subscriptions.controller.ts (CON DTOs)
-// ============================================
 import {
   Controller,
-  Get,
   Post,
+  Get,
+  Delete,
   Body,
   Param,
-  Delete,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -15,258 +12,110 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiBody,
 } from '@nestjs/swagger';
 import { SubscriptionsService } from '../services/subscriptions.service';
-import {
-  CreateSubscriptionDto,
-  SubscriptionResponseDto,
-  PaymentStatusResponseDto,
-  RetryPaymentResponseDto,
-  SubscriptionWithShopDto,
-  SubscriptionStatsDto,
-} from '../dtos/index';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { User, UserRole } from '../../users/entities/user.entity';
+import {
+  CreateSubscriptionDto,
+  SubscriptionResponseDto,
+  PaymentStatusResponseDto,
+} from '../dtos';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth()
 export class SubscriptionsController {
   constructor(private readonly subscriptionsService: SubscriptionsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
-    summary: 'Crear suscripción para un shop (HU-010)',
-    description: `
-      Crea una nueva suscripción y genera el link de pago de Mercado Pago.
-      
-      **Si ya existe una suscripción PENDING o FAILED**, automáticamente genera
-      un nuevo link de pago para reintentar (no crea una nueva suscripción).
-      
-      **Límite de reintentos**: 5 intentos máximo.
-    `
-  })
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Crear una nueva suscripción con pago (Solo RETAILER/WHOLESALER)' })
   @ApiResponse({
     status: 201,
-    description: 'Suscripción creada exitosamente. Retorna el link de pago (initPoint).',
+    description: 'Suscripción creada exitosamente',
     type: SubscriptionResponseDto,
   })
-  @ApiResponse({
-    status: 400,
-    description: 'El shop ya tiene una suscripción activa, el plan no coincide, o se excedió el límite de intentos',
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'No tienes permiso para crear suscripción para este shop',
-  })
-  create(
+  @ApiResponse({ status: 400, description: 'Ya tienes una suscripción activa' })
+  @ApiResponse({ status: 403, description: 'No tienes permisos (debes ser RETAILER o WHOLESALER)' })
+  async create(
     @Body() createSubscriptionDto: CreateSubscriptionDto,
     @CurrentUser() user: User,
   ) {
     return this.subscriptionsService.create(createSubscriptionDto, user);
   }
 
-  @Post(':id/retry-payment')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
-    summary: 'Reintentar pago de una suscripción fallida',
-    description: `
-      Genera un nuevo link de pago para una suscripción en estado PENDING o FAILED.
-      
-      **Casos de uso:**
-      - El usuario abandonó el checkout de Mercado Pago
-      - El pago fue rechazado (tarjeta sin fondos, etc.)
-      - Hubo un error técnico durante el proceso de pago
-      
-      **Límite**: 5 intentos máximo por suscripción.
-    `,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Nuevo link de pago generado exitosamente. Retorna initPoint.',
-    type: RetryPaymentResponseDto,
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'La suscripción no está en estado PENDING/FAILED o se excedió el límite de intentos',
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Suscripción no encontrada',
-  })
-  retryPayment(@Param('id') id: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.retryPayment(id, user);
+  @Get('me')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obtener mi suscripción actual (Solo RETAILER/WHOLESALER)' })
+  @ApiResponse({ status: 200, description: 'Suscripción encontrada' })
+  @ApiResponse({ status: 404, description: 'No tienes ninguna suscripción' })
+  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  async getMySubscription(@CurrentUser() user: User) {
+    return this.subscriptionsService.findMySubscription(user.id);
   }
 
   @Get(':id/payment-status')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
-    summary: 'Obtener estado del pago de una suscripción',
-    description: 'Consulta el estado actual del pago, si puede reintentar, y cuántos intentos quedan.',
-  })
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obtener estado del pago de una suscripción (Solo RETAILER/WHOLESALER)' })
   @ApiResponse({
     status: 200,
-    description: 'Estado del pago de la suscripción',
+    description: 'Estado del pago',
     type: PaymentStatusResponseDto,
   })
-  @ApiResponse({
-    status: 404,
-    description: 'Suscripción no encontrada',
-  })
-  getPaymentStatus(@Param('id') id: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.getPaymentStatus(id, user);
-  }
-
-  @Get('me')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Obtener mi suscripción (usuario autenticado)',
-    description: `
-      Obtiene la suscripción del usuario autenticado.
-
-      Funciona tanto si tienes un shop asociado como si no.
-
-      Retorna:
-      - Datos de la suscripción (si existe)
-      - Días hasta la expiración
-      - Si puede reintentar el pago (canRetryPayment)
-      - Intentos restantes (attemptsRemaining)
-    `
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Información de tu suscripción',
-  })
-  findMySubscription(@CurrentUser() user: User) {
-    return this.subscriptionsService.findMySubscription(user);
-  }
-
-  @Get('shop/:shopId')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Obtener suscripción de un shop (HU-011)',
-    description: `
-      Ver el estado actual de la suscripción del shop.
-
-      Retorna:
-      - Datos de la suscripción
-      - Días hasta la expiración
-      - Si puede reintentar el pago (canRetryPayment)
-      - Intentos restantes (attemptsRemaining)
-    `
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Información de la suscripción',
-    type: SubscriptionWithShopDto,
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Shop no encontrado o no tiene suscripción',
-  })
-  findByShop(@Param('shopId') shopId: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.findByShop(shopId, user);
-  }
-
-  @Delete('shop/:shopId/cancel')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Cancelar suscripción (HU-011)',
-    description: `
-      Cancela la renovación automática de la suscripción.
-
-      El shop permanece activo hasta la fecha de vencimiento actual.
-    `
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Suscripción cancelada exitosamente',
-  })
-  cancel(@Param('shopId') shopId: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.cancel(shopId, user);
-  }
-
-  @Post('shop/:shopId/auto-renew')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Activar/Desactivar renovación automática',
-    description: `
-      Permite activar o desactivar la renovación automática de la suscripción mensual.
-
-      Cuando está activada:
-      - El sistema generará automáticamente un link de pago 5 días antes del vencimiento
-      - Al pagar, la suscripción se extenderá un mes más automáticamente
-      - Recibirás un email con el link de pago
-
-      Cuando está desactivada:
-      - La suscripción expirará al finalizar el período actual
-      - Deberás renovar manualmente si deseas continuar
-    `
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['autoRenew'],
-      properties: {
-        autoRenew: {
-          type: 'boolean',
-          example: true,
-          description: 'true para activar, false para desactivar'
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Renovación automática actualizada exitosamente',
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'La suscripción debe estar activa para modificar la renovación automática',
-  })
-  toggleAutoRenew(
-    @Param('shopId') shopId: string,
-    @Body('autoRenew') autoRenew: boolean,
+  @ApiResponse({ status: 404, description: 'Suscripción no encontrada' })
+  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  async getPaymentStatus(
+    @Param('id') id: string,
     @CurrentUser() user: User,
   ) {
-    return this.subscriptionsService.toggleAutoRenew(shopId, autoRenew, user);
+    return this.subscriptionsService.getPaymentStatus(id, user.id);
   }
 
-  @Get('stats')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ 
-    summary: 'Estadísticas de suscripciones (solo admin)',
-    description: `
-      Ver totales de suscripciones por estado.
-      
-      Estados:
-      - ACTIVE: Pagadas y activas
-      - PENDING: Esperando pago inicial
-      - FAILED: Pagos fallidos (pueden reintentar)
-      - EXPIRED: Vencidas
-      - CANCELLED: Canceladas por el usuario
-    `
+  @Post(':id/retry-payment')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reintentar pago de una suscripción (Solo RETAILER/WHOLESALER)' })
+  @ApiResponse({ status: 200, description: 'Nuevo link de pago generado' })
+  @ApiResponse({
+    status: 400,
+    description: 'Límite de intentos alcanzado o estado inválido',
+  })
+  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  async retryPayment(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.subscriptionsService.retryPayment(id, user);
+  }
+
+  @Delete(':id/cancel')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cancelar una suscripción (Solo RETAILER/WHOLESALER)' })
+  @ApiResponse({ status: 200, description: 'Suscripción cancelada' })
+  @ApiResponse({ status: 404, description: 'Suscripción no encontrada' })
+  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  async cancelSubscription(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.subscriptionsService.cancelSubscription(id, user.id);
+  }
+
+  @Post(':id/toggle-auto-renew')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Activar/desactivar renovación automática (Solo RETAILER/WHOLESALER)',
   })
   @ApiResponse({
     status: 200,
-    description: 'Estadísticas de suscripciones',
-    type: SubscriptionStatsDto,
+    description: 'Renovación automática actualizada',
   })
-  getStats() {
-    return this.subscriptionsService.getStats();
+  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  async toggleAutoRenew(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.subscriptionsService.toggleAutoRenew(id, user.id);
   }
 }
-

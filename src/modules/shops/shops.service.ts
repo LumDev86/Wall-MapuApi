@@ -16,7 +16,6 @@ import { UpdateShopDto } from './dtos/update-shop.dto';
 import { FilterShopsDto } from './dtos/filter-shops.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
-import { Subscription, SubscriptionStatus, SubscriptionPlan } from '../subscriptions/entities/subscription.entity';
 import { GeocodingService } from '../../common/services/geocoding.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
@@ -28,8 +27,6 @@ export class ShopsService {
     private shopRepository: Repository<Shop>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    @InjectRepository(Subscription)
-    private subscriptionRepository: Repository<Subscription>,
     private geocodingService: GeocodingService,
     private cloudinaryService: CloudinaryService,
     private redisService: RedisService,
@@ -43,38 +40,6 @@ export class ShopsService {
       banner?: Express.Multer.File[];
     },
   ) {
-    // 🆕 Verificar que el usuario tiene una suscripción ACTIVE
-    const activeSubscription = await this.subscriptionRepository.findOne({
-      where: {
-        userId: owner.id,
-        status: SubscriptionStatus.ACTIVE,
-      },
-    });
-
-    if (!activeSubscription) {
-      throw new BadRequestException(
-        'Debes tener una suscripción activa para crear un shop. Por favor, suscríbete primero.',
-      );
-    }
-
-    // 🆕 Verificar que ya no tenga un shop vinculado a su suscripción
-    if (activeSubscription.shopId) {
-      throw new BadRequestException(
-        'Ya tienes un shop asociado a tu suscripción.',
-      );
-    }
-
-    // 🆕 Verificar que el tipo de shop coincide con el plan de suscripción
-    const expectedType = activeSubscription.plan === SubscriptionPlan.RETAILER
-      ? ShopType.RETAILER
-      : ShopType.WHOLESALER;
-
-    if (createShopDto.type !== expectedType) {
-      throw new BadRequestException(
-        `Tu suscripción es de tipo ${activeSubscription.plan}. Debes crear un shop de tipo ${expectedType}.`,
-      );
-    }
-
     // Validar horarios si existen
     if (createShopDto.schedule) {
       this.validateSchedule(createShopDto.schedule);
@@ -131,21 +96,16 @@ export class ShopsService {
       logo: logoUrl,
       banner: bannerUrl,
       owner: { id: owner.id },
-      status: ShopStatus.ACTIVE, // 🆕 Ya tiene suscripción activa
+      status: ShopStatus.ACTIVE,
     });
 
     await this.shopRepository.save(shop);
-
-    // 🆕 Vincular la suscripción con el shop recién creado
-    activeSubscription.shopId = shop.id;
-    await this.subscriptionRepository.save(activeSubscription);
 
     // 🗑️ INVALIDAR CACHE
     await this.redisService.deleteKeysByPattern('shops:location:*');
 
     return {
-      message:
-        'Local registrado exitosamente y vinculado a tu suscripción.',
+      message: 'Local registrado exitosamente.',
       shop: this.sanitizeShop(shop),
       geocodedAddress: formattedAddress,
     };

@@ -1,27 +1,32 @@
 import {
   Injectable,
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
   Logger,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, In } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import {
   Subscription,
-  SubscriptionStatus,
   SubscriptionPlan,
+  SubscriptionStatus,
 } from '../entities/subscription.entity';
 import { Shop, ShopStatus } from '../../shops/entities/shop.entity';
 import { User } from '../../users/entities/user.entity';
-import { CreateSubscriptionDto } from '../dtos/create-subscription.dto';
-import { MercadoPagoService } from './mercadopago.service';
-import { RedisService } from '../../../common/redis/redis.service';
+import { MercadoPagoService } from '../../../common/services/mercadopago.service';
+import { CreateSubscriptionDto } from '../dtos';
 
 @Injectable()
 export class SubscriptionsService {
   private readonly logger = new Logger(SubscriptionsService.name);
+  private readonly MAX_PAYMENT_ATTEMPTS = 5;
+
+  // Precios de planes en ARS
+  private readonly PLAN_PRICES = {
+    [SubscriptionPlan.RETAILER]: 5000,
+    [SubscriptionPlan.WHOLESALER]: 8000,
+  };
 
   constructor(
     @InjectRepository(Subscription)
@@ -29,50 +34,52 @@ export class SubscriptionsService {
     @InjectRepository(Shop)
     private shopRepository: Repository<Shop>,
     private mercadoPagoService: MercadoPagoService,
-    private redisService: RedisService,
+    private configService: ConfigService,
   ) {}
 
   /**
-   * Crear una nueva suscripción o reintentar una existente
+   * Crear una nueva suscripción con pago directo
    */
   async create(createSubscriptionDto: CreateSubscriptionDto, user: User) {
-    const { plan, autoRenew = true } = createSubscriptionDto;
+    const { plan, shopId, autoRenew = true, cardPayment } = createSubscriptionDto;
 
-    // Verificar que el usuario no tenga ya una suscripción activa
+    // Verificar si ya tiene una suscripción activa o pendiente
     const existingSubscription = await this.subscriptionRepository.findOne({
-      where: {
-        userId: user.id,
-        status: SubscriptionStatus.ACTIVE,
-      },
+      where: [
+        { userId: user.id, status: SubscriptionStatus.ACTIVE },
+        { userId: user.id, status: SubscriptionStatus.PENDING },
+      ],
     });
 
     if (existingSubscription) {
-      throw new BadRequestException('Ya tienes una suscripción activa');
-    }
-
-    // Verificar si tiene suscripciones PENDING o FAILED para reintentar
-    const pendingSubscription = await this.subscriptionRepository.findOne({
-      where: {
-        userId: user.id,
-        status: In([SubscriptionStatus.PENDING, SubscriptionStatus.FAILED]),
-      },
-    });
-
-    if (pendingSubscription) {
-      this.logger.log(
-        `Reintentando pago para suscripción existente: ${pendingSubscription.id}`,
+      throw new BadRequestException(
+        `Ya tienes una suscripción ${existingSubscription.status === SubscriptionStatus.ACTIVE ? 'activa' : 'pendiente'}. Cancela la actual antes de crear una nueva.`,
       );
-      return this.retryPayment(pendingSubscription.id, user);
     }
 
-    // Calcular fechas
+    // Si se proporciona shopId, verificar que exista y pertenezca al usuario
+    let shop: Shop | null = null;
+    if (shopId) {
+      shop = await this.shopRepository.findOne({
+        where: { id: shopId },
+        relations: ['owner'],
+      });
+
+      if (!shop) {
+        throw new NotFoundException('Shop no encontrado');
+      }
+
+      if (shop.owner.id !== user.id) {
+        throw new BadRequestException('El shop no te pertenece');
+      }
+    }
+
+    const amount = this.PLAN_PRICES[plan];
     const startDate = new Date();
     const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + 1); // 30 días
+    endDate.setDate(endDate.getDate() + 30); // 30 días
 
-    const amount = this.mercadoPagoService.getPlanPrice(plan);
-
-    // Crear suscripción (sin shopId por ahora)
+    // Crear suscripción en BD con status PENDING
     const subscription = this.subscriptionRepository.create({
       plan,
       status: SubscriptionStatus.PENDING,
@@ -81,63 +88,237 @@ export class SubscriptionsService {
       amount,
       autoRenew,
       userId: user.id,
-      nextPaymentDate: endDate,
+      shopId: shopId || undefined,
       failedPaymentAttempts: 0,
     });
 
     await this.subscriptionRepository.save(subscription);
 
+    this.logger.log(
+      `💳 Suscripción creada: ${subscription.id} - Procesando pago...`,
+    );
+
     try {
-      // Crear preferencia de pago en Mercado Pago
-      const { id: preferenceId, initPoint } =
-        await this.mercadoPagoService.createSubscriptionPreference(
-          subscription.id,
-          user.id, // Usar userId como referencia
-          plan,
-        );
+      // Procesar pago con tarjeta directamente
+      const paymentData = {
+        transaction_amount: Number(amount),
+        description: `Suscripción Plan ${plan === 'retailer' ? 'Minorista' : 'Mayorista'} - 30 días`,
+        payment_method_id: 'master', // Mastercard
+        payer: {
+          email: user.email,
+          identification: {
+            type: 'DNI',
+            number: cardPayment.cardholderIdentification,
+          },
+        },
+        token: null, // No usamos token, usamos datos directos
+        card: {
+          card_number: cardPayment.cardNumber,
+          security_code: cardPayment.securityCode,
+          expiration_month: cardPayment.expirationMonth,
+          expiration_year: cardPayment.expirationYear,
+          cardholder: {
+            name: cardPayment.cardholderName,
+            identification: {
+              type: 'DNI',
+              number: cardPayment.cardholderIdentification,
+            },
+          },
+        },
+        external_reference: subscription.id,
+        metadata: {
+          subscription_id: subscription.id,
+          user_id: user.id,
+          shop_id: shopId,
+          plan: plan,
+          type: 'subscription',
+        },
+        notification_url: `${this.configService.get('BACKEND_URL')}/api/webhooks/mercadopago`,
+      };
 
-      subscription.mercadoPagoPreapprovalId = preferenceId;
-      await this.subscriptionRepository.save(subscription);
+      const paymentResult = await this.mercadoPagoService.processCardPayment(paymentData);
 
-      return {
-        message: 'Suscripción creada exitosamente. Procede al pago.',
-        subscription: {
+      // Actualizar suscripción según resultado del pago
+      subscription.mercadoPagoSubscriptionId = paymentResult.id ? String(paymentResult.id) : undefined;
+      subscription.paymentDetails = paymentResult;
+
+      if (paymentResult.status === 'approved') {
+        // Pago aprobado - activar suscripción
+        subscription.status = SubscriptionStatus.ACTIVE;
+        subscription.lastPaymentDate = paymentResult.dateApproved
+          ? new Date(paymentResult.dateApproved)
+          : new Date();
+
+        const nextPaymentDate = new Date();
+        nextPaymentDate.setDate(nextPaymentDate.getDate() + 30);
+        subscription.nextPaymentDate = nextPaymentDate;
+
+        // Si tiene shop, activarlo
+        if (shop) {
+          shop.status = ShopStatus.ACTIVE;
+          await this.shopRepository.save(shop);
+          this.logger.log(`✅ Shop activado: ${shop.id}`);
+        }
+
+        await this.subscriptionRepository.save(subscription);
+
+        this.logger.log(`✅ Suscripción activada: ${subscription.id}`);
+
+        return {
           id: subscription.id,
           plan: subscription.plan,
           status: subscription.status,
           amount: subscription.amount,
-          startDate: subscription.startDate,
-          endDate: subscription.endDate,
-          initPoint, // URL de pago
-        },
-      };
+          autoRenew: subscription.autoRenew,
+          paymentStatus: paymentResult.status,
+          message: '¡Pago aprobado! Tu suscripción está activa.',
+        };
+
+      } else if (paymentResult.status === 'rejected') {
+        // Pago rechazado
+        subscription.status = SubscriptionStatus.FAILED;
+        subscription.failedPaymentAttempts = 1;
+        await this.subscriptionRepository.save(subscription);
+
+        this.logger.warn(`❌ Pago rechazado: ${subscription.id}`);
+
+        throw new BadRequestException(
+          `Pago rechazado: ${paymentResult.statusDetail}. Por favor verifica los datos de tu tarjeta.`,
+        );
+
+      } else {
+        // Pago pendiente o en proceso
+        subscription.status = SubscriptionStatus.PENDING;
+        await this.subscriptionRepository.save(subscription);
+
+        this.logger.log(`⏳ Pago pendiente: ${subscription.id} - Estado: ${paymentResult.status}`);
+
+        return {
+          id: subscription.id,
+          plan: subscription.plan,
+          status: subscription.status,
+          amount: subscription.amount,
+          autoRenew: subscription.autoRenew,
+          paymentStatus: paymentResult.status,
+          message: `Pago en proceso. Estado: ${paymentResult.status}`,
+        };
+      }
+
     } catch (error) {
-      // Si falla la creación de la preferencia, marcar como fallida
+      // Error al procesar pago
       subscription.status = SubscriptionStatus.FAILED;
-      subscription.failedPaymentAttempts += 1;
+      subscription.failedPaymentAttempts = 1;
       await this.subscriptionRepository.save(subscription);
 
+      this.logger.error(`❌ Error al procesar pago: ${error.message}`);
+
       throw new BadRequestException(
-        `Error al generar link de pago: ${error.message}. Puedes reintentar más tarde.`,
+        `Error al procesar el pago: ${error.message}`,
       );
     }
   }
 
   /**
-   * 🆕 Reintentar pago de una suscripción pendiente o fallida
+   * Crear preferencia de pago en Mercado Pago
    */
-  async retryPayment(subscriptionId: string, user: User) {
+  private async createPaymentPreference(subscription: Subscription, user: User) {
+    const planName =
+      subscription.plan === SubscriptionPlan.RETAILER
+        ? 'Minorista'
+        : 'Mayorista';
+
+    const preferenceData = {
+      items: [
+        {
+          id: subscription.id,
+          title: `Suscripción Plan ${planName}`,
+          description: `Suscripción mensual para local ${planName.toLowerCase()} - 30 días`,
+          category_id: 'services',
+          quantity: 1,
+          unit_price: Number(subscription.amount),
+          currency_id: 'ARS',
+        },
+      ],
+      payer: {
+        name: user.name || 'Usuario',
+        email: user.email,
+      },
+      back_urls: {
+        success: `${this.configService.get('FRONTEND_URL')}/subscription/success`,
+        failure: `${this.configService.get('FRONTEND_URL')}/subscription/failure`,
+        pending: `${this.configService.get('FRONTEND_URL')}/subscription/pending`,
+      },
+      auto_return: 'approved' as const,
+      notification_url: `${this.configService.get('BACKEND_URL')}/api/webhooks/mercadopago`,
+      external_reference: subscription.id,
+      metadata: {
+        subscription_id: subscription.id,
+        user_id: user.id,
+        shop_id: subscription.shopId,
+        plan: subscription.plan,
+        type: 'subscription',
+      },
+      statement_descriptor: 'PETSHOP SUBS',
+    };
+
+    return await this.mercadoPagoService.createPreference(preferenceData);
+  }
+
+  /**
+   * Obtener suscripción del usuario
+   */
+  async findMySubscription(userId: string) {
     const subscription = await this.subscriptionRepository.findOne({
-      where: { id: subscriptionId },
+      where: { userId },
       relations: ['shop'],
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('No tienes ninguna suscripción');
+    }
+
+    return subscription;
+  }
+
+  /**
+   * Obtener estado de pago
+   */
+  async getPaymentStatus(subscriptionId: string, userId: string) {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { id: subscriptionId, userId },
     });
 
     if (!subscription) {
       throw new NotFoundException('Suscripción no encontrada');
     }
 
-    if (subscription.userId !== user.id) {
-      throw new ForbiddenException('No tienes permiso para reintentar este pago');
+    const canRetryPayment =
+      (subscription.status === SubscriptionStatus.PENDING ||
+        subscription.status === SubscriptionStatus.FAILED) &&
+      subscription.failedPaymentAttempts < this.MAX_PAYMENT_ATTEMPTS;
+
+    const attemptsRemaining =
+      this.MAX_PAYMENT_ATTEMPTS - subscription.failedPaymentAttempts;
+
+    return {
+      subscriptionId: subscription.id,
+      status: subscription.status,
+      canRetryPayment,
+      attemptsRemaining: Math.max(0, attemptsRemaining),
+    };
+  }
+
+  /**
+   * Reintentar pago
+   */
+  async retryPayment(subscriptionId: string, user: User) {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { id: subscriptionId, userId: user.id },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Suscripción no encontrada');
     }
 
     if (
@@ -145,141 +326,44 @@ export class SubscriptionsService {
       subscription.status !== SubscriptionStatus.FAILED
     ) {
       throw new BadRequestException(
-        'Solo se pueden reintentar pagos de suscripciones PENDING o FAILED',
+        'Solo puedes reintentar el pago de suscripciones pendientes o fallidas',
       );
     }
 
-    // Límite de intentos fallidos
-    if (subscription.failedPaymentAttempts >= 5) {
+    if (subscription.failedPaymentAttempts >= this.MAX_PAYMENT_ATTEMPTS) {
       throw new BadRequestException(
-        'Has excedido el límite de intentos de pago. Contacta a soporte.',
+        'Has alcanzado el límite máximo de intentos de pago',
       );
     }
 
-    try {
-      // Crear una nueva preferencia de pago en Mercado Pago
-      const { id: preferenceId, initPoint } =
-        await this.mercadoPagoService.createSubscriptionPreference(
-          subscription.id,
-          user.id,
-          subscription.plan,
-        );
+    // Incrementar intentos
+    subscription.failedPaymentAttempts += 1;
+    await this.subscriptionRepository.save(subscription);
 
-      // Actualizar suscripción con nueva preferencia
-      subscription.mercadoPagoPreapprovalId = preferenceId;
-      subscription.status = SubscriptionStatus.PENDING;
-      await this.subscriptionRepository.save(subscription);
+    // Crear nueva preferencia de pago
+    const preference = await this.createPaymentPreference(subscription, user);
 
-      this.logger.log(`Nuevo intento de pago generado para: ${subscriptionId}`);
+    subscription.mercadoPagoPreapprovalId = preference.id;
+    await this.subscriptionRepository.save(subscription);
 
-      return {
-        message: 'Nueva preferencia de pago generada. Procede al pago.',
-        subscription: {
-          id: subscription.id,
-          plan: subscription.plan,
-          status: subscription.status,
-          amount: subscription.amount,
-          startDate: subscription.startDate,
-          endDate: subscription.endDate,
-          initPoint, // Nueva URL de pago
-          attemptsRemaining: 5 - subscription.failedPaymentAttempts,
-        },
-      };
-    } catch (error) {
-      // Incrementar contador de intentos fallidos
-      subscription.failedPaymentAttempts += 1;
-      await this.subscriptionRepository.save(subscription);
+    const attemptsRemaining =
+      this.MAX_PAYMENT_ATTEMPTS - subscription.failedPaymentAttempts;
 
-      throw new BadRequestException(
-        `Error al generar link de pago: ${error.message}. Intentos restantes: ${5 - subscription.failedPaymentAttempts}`,
-      );
-    }
+    return {
+      message: 'Link de pago generado exitosamente',
+      paymentLink: preference.initPoint,
+      attemptsRemaining,
+    };
   }
 
   /**
-   * Procesar pago aprobado
+   * Procesar pago aprobado desde webhook
    */
   async processApprovedPayment(paymentData: any) {
-    const { external_reference: subscriptionId, id: paymentId } = paymentData;
+    const subscriptionId = paymentData.externalReference;
+    const metadata = paymentData.metadata || {};
 
-    const subscription = await this.subscriptionRepository.findOne({
-      where: { id: subscriptionId },
-      relations: ['shop', 'user'],
-    });
-
-    if (!subscription) {
-      this.logger.error(`Suscripción no encontrada: ${subscriptionId}`);
-      return;
-    }
-
-    const isRenewal = subscription.status === SubscriptionStatus.ACTIVE;
-
-    if (isRenewal) {
-      // 🔄 Renovación: Extender la suscripción un mes más
-      this.logger.log(`🔄 Procesando renovación de suscripción: ${subscriptionId}`);
-
-      const newEndDate = new Date(subscription.endDate);
-      newEndDate.setMonth(newEndDate.getMonth() + 1);
-
-      subscription.endDate = newEndDate;
-      subscription.lastPaymentDate = new Date();
-      subscription.nextPaymentDate = newEndDate;
-      subscription.mercadoPagoSubscriptionId = paymentId;
-      subscription.paymentDetails = {
-        ...paymentData,
-        renewedAt: new Date(),
-      };
-      subscription.failedPaymentAttempts = 0;
-
-      await this.subscriptionRepository.save(subscription);
-
-      this.logger.log(
-        `✅ Suscripción renovada hasta: ${newEndDate.toLocaleDateString()} - ${subscriptionId}`,
-      );
-    } else {
-      // 🆕 Activación inicial
-      this.logger.log(`🆕 Activando suscripción nueva: ${subscriptionId}`);
-
-      subscription.status = SubscriptionStatus.ACTIVE;
-      subscription.lastPaymentDate = new Date();
-      subscription.mercadoPagoSubscriptionId = paymentId;
-      subscription.paymentDetails = paymentData;
-      subscription.failedPaymentAttempts = 0;
-
-      await this.subscriptionRepository.save(subscription);
-
-      // 🆕 Actualizar rol del usuario según el plan
-      const userRole = subscription.plan === SubscriptionPlan.RETAILER
-        ? 'retailer'
-        : 'wholesaler';
-
-      subscription.user.role = userRole as any;
-      await this.subscriptionRepository.manager.save(subscription.user);
-
-      // Actualizar estado del shop (solo si existe)
-      if (subscription.shop) {
-        subscription.shop.status = ShopStatus.ACTIVE;
-        await this.shopRepository.save(subscription.shop);
-        this.logger.log(`✅ Shop activado: ${subscription.shop.name}`);
-      }
-
-      this.logger.log(`✅ Suscripción activada y rol actualizado: ${subscriptionId}`);
-    }
-
-    // Invalidar cache (solo si existe shop)
-    if (subscription.shopId) {
-      await this.redisService.del(`shop:${subscription.shopId}`);
-      await this.redisService.deleteKeysByPattern('shops:location:*');
-    }
-
-    return subscription;
-  }
-
-  /**
-   * 🆕 Procesar pago fallido
-   */
-  async processFailedPayment(paymentData: any) {
-    const { external_reference: subscriptionId } = paymentData;
+    this.logger.log(`📥 Procesando pago aprobado para: ${subscriptionId}`);
 
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
@@ -287,140 +371,69 @@ export class SubscriptionsService {
     });
 
     if (!subscription) {
-      this.logger.error(`Suscripción no encontrada: ${subscriptionId}`);
-      return;
+      this.logger.error(`❌ Suscripción no encontrada: ${subscriptionId}`);
+      throw new NotFoundException('Suscripción no encontrada');
     }
 
-    // Marcar como fallida
-    subscription.status = SubscriptionStatus.FAILED;
-    subscription.failedPaymentAttempts += 1;
-    subscription.paymentDetails = {
-      ...paymentData,
-      failedAt: new Date(),
-    };
+    // Actualizar suscripción a ACTIVE
+    subscription.status = SubscriptionStatus.ACTIVE;
+    subscription.mercadoPagoSubscriptionId = paymentData.id;
+    subscription.lastPaymentDate = new Date(paymentData.dateApproved);
+    subscription.paymentDetails = paymentData;
+
+    // Calcular próxima fecha de pago (30 días después)
+    const nextPaymentDate = new Date();
+    nextPaymentDate.setDate(nextPaymentDate.getDate() + 30);
+    subscription.nextPaymentDate = nextPaymentDate;
 
     await this.subscriptionRepository.save(subscription);
 
-    this.logger.log(
-      `❌ Pago fallido para suscripción: ${subscriptionId} (Intento ${subscription.failedPaymentAttempts}/5)`,
-    );
+    // Si tiene un shop vinculado, activarlo
+    if (subscription.shop) {
+      subscription.shop.status = ShopStatus.ACTIVE;
+      await this.shopRepository.save(subscription.shop);
+      this.logger.log(`✅ Shop activado: ${subscription.shop.id}`);
+    }
+
+    this.logger.log(`✅ Suscripción activada: ${subscription.id}`);
 
     return subscription;
   }
 
   /**
-   * 🆕 Procesar pago rechazado
+   * Procesar pago rechazado desde webhook
    */
   async processRejectedPayment(paymentData: any) {
-    const { external_reference: subscriptionId } = paymentData;
+    const subscriptionId = paymentData.externalReference;
+
+    this.logger.warn(`⚠️ Pago rechazado para: ${subscriptionId}`);
 
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['shop'],
     });
 
     if (!subscription) {
-      this.logger.error(`Suscripción no encontrada: ${subscriptionId}`);
-      return;
+      this.logger.error(`❌ Suscripción no encontrada: ${subscriptionId}`);
+      throw new NotFoundException('Suscripción no encontrada');
     }
 
     subscription.status = SubscriptionStatus.FAILED;
-    subscription.failedPaymentAttempts += 1;
-    subscription.paymentDetails = {
-      ...paymentData,
-      rejectedAt: new Date(),
-    };
+    subscription.mercadoPagoSubscriptionId = paymentData.id;
+    subscription.paymentDetails = paymentData;
 
     await this.subscriptionRepository.save(subscription);
 
-    this.logger.log(`⚠️ Pago rechazado para suscripción: ${subscriptionId}`);
+    this.logger.log(`❌ Suscripción marcada como fallida: ${subscription.id}`);
 
     return subscription;
   }
 
   /**
-   * Obtener suscripción de un shop
+   * Cancelar suscripción
    */
-  async findByShop(shopId: string, user: User) {
-    const shop = await this.shopRepository.findOne({
-      where: { id: shopId },
-      relations: ['owner', 'subscription'],
-    });
-
-    if (!shop) {
-      throw new NotFoundException('Shop no encontrado');
-    }
-
-    if (shop.owner.id !== user.id) {
-      throw new ForbiddenException('No tienes permiso para ver esta suscripción');
-    }
-
-    if (!shop.subscription) {
-      throw new NotFoundException('El shop no tiene suscripción');
-    }
-
-    const canRetryPayment =
-      shop.subscription.status === SubscriptionStatus.PENDING ||
-      shop.subscription.status === SubscriptionStatus.FAILED;
-
-    return {
-      subscription: shop.subscription,
-      daysUntilExpiration: this.getDaysUntilExpiration(shop.subscription.endDate),
-      canRetryPayment,
-      attemptsRemaining: canRetryPayment
-        ? 5 - shop.subscription.failedPaymentAttempts
-        : null,
-    };
-  }
-
-  /**
-   * 🆕 Obtener mi suscripción (usuario autenticado)
-   */
-  async findMySubscription(user: User) {
+  async cancelSubscription(subscriptionId: string, userId: string) {
     const subscription = await this.subscriptionRepository.findOne({
-      where: {
-        userId: user.id,
-        status: In([
-          SubscriptionStatus.ACTIVE,
-          SubscriptionStatus.PENDING,
-          SubscriptionStatus.FAILED,
-        ]),
-      },
-      relations: ['shop'],
-      order: {
-        createdAt: 'DESC',
-      },
-    });
-
-    if (!subscription) {
-      return {
-        subscription: null,
-        message: 'No tienes ninguna suscripción',
-      };
-    }
-
-    const canRetryPayment =
-      subscription.status === SubscriptionStatus.PENDING ||
-      subscription.status === SubscriptionStatus.FAILED;
-
-    return {
-      subscription,
-      daysUntilExpiration: subscription.status === SubscriptionStatus.ACTIVE
-        ? this.getDaysUntilExpiration(subscription.endDate)
-        : null,
-      canRetryPayment,
-      attemptsRemaining: canRetryPayment
-        ? 5 - subscription.failedPaymentAttempts
-        : null,
-    };
-  }
-
-  /**
-   * 🆕 Obtener estado de pago de una suscripción
-   */
-  async getPaymentStatus(subscriptionId: string, user: User) {
-    const subscription = await this.subscriptionRepository.findOne({
-      where: { id: subscriptionId },
+      where: { id: subscriptionId, userId },
       relations: ['shop'],
     });
 
@@ -428,308 +441,45 @@ export class SubscriptionsService {
       throw new NotFoundException('Suscripción no encontrada');
     }
 
-    if (subscription.userId !== user.id) {
-      throw new ForbiddenException('No tienes permiso para ver esta suscripción');
+    if (subscription.status === SubscriptionStatus.CANCELLED) {
+      throw new BadRequestException('La suscripción ya está cancelada');
     }
 
-    const canRetryPayment =
-      subscription.status === SubscriptionStatus.PENDING ||
-      subscription.status === SubscriptionStatus.FAILED;
+    subscription.status = SubscriptionStatus.CANCELLED;
+    subscription.autoRenew = false;
+    await this.subscriptionRepository.save(subscription);
 
-    return {
-      subscriptionId: subscription.id,
-      status: subscription.status,
-      plan: subscription.plan,
-      amount: subscription.amount,
-      canRetryPayment,
-      failedAttempts: subscription.failedPaymentAttempts,
-      attemptsRemaining: canRetryPayment ? 5 - subscription.failedPaymentAttempts : 0,
-      paymentDetails: subscription.paymentDetails,
-    };
-  }
-
-  /**
-   * Cancelar suscripción
-   */
-  async cancel(shopId: string, user: User) {
-    const shop = await this.shopRepository.findOne({
-      where: { id: shopId },
-      relations: ['owner', 'subscription'],
-    });
-
-    if (!shop) {
-      throw new NotFoundException('Shop no encontrado');
-    }
-
-    if (shop.owner.id !== user.id) {
-      throw new ForbiddenException('No tienes permiso para cancelar esta suscripción');
-    }
-
-    if (!shop.subscription) {
-      throw new NotFoundException('El shop no tiene suscripción');
-    }
-
-    shop.subscription.status = SubscriptionStatus.CANCELLED;
-    shop.subscription.autoRenew = false;
-    await this.subscriptionRepository.save(shop.subscription);
-
-    // Invalidar cache
-    await this.redisService.del(`shop:${shopId}`);
-    await this.redisService.deleteKeysByPattern('shops:location:*');
-
-    return {
-      message: 'Suscripción cancelada. El shop permanecerá activo hasta la fecha de vencimiento.',
-      subscription: shop.subscription,
-    };
-  }
-
-  /**
-   * 🆕 Activar/Desactivar renovación automática
-   */
-  async toggleAutoRenew(shopId: string, autoRenew: boolean, user: User) {
-    const shop = await this.shopRepository.findOne({
-      where: { id: shopId },
-      relations: ['owner', 'subscription'],
-    });
-
-    if (!shop) {
-      throw new NotFoundException('Shop no encontrado');
-    }
-
-    if (shop.owner.id !== user.id) {
-      throw new ForbiddenException(
-        'No tienes permiso para modificar esta suscripción',
-      );
-    }
-
-    if (!shop.subscription) {
-      throw new NotFoundException('El shop no tiene suscripción');
-    }
-
-    if (shop.subscription.status !== SubscriptionStatus.ACTIVE) {
-      throw new BadRequestException(
-        'Solo puedes modificar la renovación automática en suscripciones activas',
-      );
-    }
-
-    shop.subscription.autoRenew = autoRenew;
-    await this.subscriptionRepository.save(shop.subscription);
-
-    // Invalidar cache
-    await this.redisService.del(`shop:${shopId}`);
-
-    const message = autoRenew
-      ? 'Renovación automática activada. Tu suscripción se renovará automáticamente cada mes.'
-      : 'Renovación automática desactivada. Tu suscripción no se renovará automáticamente.';
-
-    this.logger.log(
-      `${autoRenew ? '✅ Activada' : '❌ Desactivada'} renovación automática para suscripción: ${shop.subscription.id}`,
-    );
-
-    return {
-      message,
-      subscription: shop.subscription,
-    };
-  }
-
-  /**
-   * Cron job: Verificar suscripciones vencidas (se ejecuta diariamente a las 00:00)
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async checkExpiredSubscriptions() {
-    this.logger.log('🔍 Verificando suscripciones vencidas...');
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const expiredSubscriptions = await this.subscriptionRepository.find({
-      where: {
-        status: SubscriptionStatus.ACTIVE,
-        endDate: LessThan(today),
-      },
-      relations: ['shop'],
-    });
-
-    for (const subscription of expiredSubscriptions) {
-      subscription.status = SubscriptionStatus.EXPIRED;
-      await this.subscriptionRepository.save(subscription);
-
-      // Ocultar shop del mapa
+    // Si tiene shop, suspenderlo
+    if (subscription.shop) {
       subscription.shop.status = ShopStatus.SUSPENDED;
       await this.shopRepository.save(subscription.shop);
-
-      // Invalidar cache
-      await this.redisService.del(`shop:${subscription.shopId}`);
-
-      this.logger.log(`⏰ Suscripción expirada: ${subscription.id} - Shop: ${subscription.shop.name}`);
     }
 
-    // Invalidar cache global
-    await this.redisService.deleteKeysByPattern('shops:location:*');
-
-    this.logger.log(`✅ ${expiredSubscriptions.length} suscripciones expiradas procesadas`);
-  }
-
-  /**
-   * 🆕 Cron job: Limpiar suscripciones PENDING/FAILED antiguas (7 días)
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async cleanupStaleSubscriptions() {
-    this.logger.log('🧹 Limpiando suscripciones pendientes antiguas...');
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const staleSubscriptions = await this.subscriptionRepository
-      .createQueryBuilder('subscription')
-      .where('subscription.status IN (:...statuses)', {
-        statuses: [SubscriptionStatus.PENDING, SubscriptionStatus.FAILED],
-      })
-      .andWhere('subscription.createdAt < :sevenDaysAgo', { sevenDaysAgo })
-      .getMany();
-
-    for (const subscription of staleSubscriptions) {
-      subscription.status = SubscriptionStatus.CANCELLED;
-      await this.subscriptionRepository.save(subscription);
-
-      this.logger.log(
-        `🗑️ Suscripción pendiente cancelada por inactividad: ${subscription.id}`,
-      );
-    }
-
-    this.logger.log(`✅ ${staleSubscriptions.length} suscripciones pendientes canceladas`);
-  }
-
-  /**
-   * Cron job: Notificar suscripciones próximas a vencer (3 días antes)
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_10AM)
-  async notifyUpcomingExpirations() {
-    this.logger.log('📧 Verificando suscripciones próximas a vencer...');
-
-    const threeDaysFromNow = new Date();
-    threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
-    threeDaysFromNow.setHours(23, 59, 59, 999);
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const upcomingExpirations = await this.subscriptionRepository
-      .createQueryBuilder('subscription')
-      .leftJoinAndSelect('subscription.shop', 'shop')
-      .leftJoinAndSelect('shop.owner', 'owner')
-      .where('subscription.status = :status', { status: SubscriptionStatus.ACTIVE })
-      .andWhere('subscription.endDate >= :today', { today })
-      .andWhere('subscription.endDate <= :threeDays', { threeDays: threeDaysFromNow })
-      .getMany();
-
-    for (const subscription of upcomingExpirations) {
-      const daysLeft = this.getDaysUntilExpiration(subscription.endDate);
-      
-      this.logger.log(
-        `📩 Notificar a ${subscription.shop.owner.email}: Suscripción vence en ${daysLeft} días`,
-      );
-
-      // TODO: Implementar envío de email
-      // await this.emailService.sendExpirationWarning(subscription);
-    }
-
-    this.logger.log(`✅ ${upcomingExpirations.length} notificaciones enviadas`);
-  }
-
-  /**
-   * 🆕 Cron job: Procesar renovaciones automáticas (5 días antes de vencer)
-   * Se ejecuta diariamente a las 8 AM
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_8AM)
-  async processAutoRenewals() {
-    this.logger.log('🔄 Procesando renovaciones automáticas...');
-
-    const fiveDaysFromNow = new Date();
-    fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
-    fiveDaysFromNow.setHours(23, 59, 59, 999);
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Buscar suscripciones activas con autoRenew habilitado que vencen en 5 días
-    const subscriptionsToRenew = await this.subscriptionRepository
-      .createQueryBuilder('subscription')
-      .leftJoinAndSelect('subscription.shop', 'shop')
-      .leftJoinAndSelect('shop.owner', 'owner')
-      .where('subscription.status = :status', { status: SubscriptionStatus.ACTIVE })
-      .andWhere('subscription.autoRenew = :autoRenew', { autoRenew: true })
-      .andWhere('subscription.endDate >= :today', { today })
-      .andWhere('subscription.endDate <= :fiveDays', { fiveDays: fiveDaysFromNow })
-      .getMany();
-
-    this.logger.log(`📋 Encontradas ${subscriptionsToRenew.length} suscripciones para renovar`);
-
-    for (const subscription of subscriptionsToRenew) {
-      try {
-        // Generar link de pago para renovación
-        const preference = await this.mercadoPagoService.createSubscriptionPreference(
-          subscription.id,
-          subscription.shopId,
-          subscription.plan,
-        );
-
-        // Actualizar la preferencia de MP en la suscripción
-        subscription.mercadoPagoPreapprovalId = preference.id;
-        await this.subscriptionRepository.save(subscription);
-
-        const daysLeft = this.getDaysUntilExpiration(subscription.endDate);
-
-        this.logger.log(
-          `💳 Link de renovación generado para suscripción ${subscription.id} - Vence en ${daysLeft} días`,
-        );
-
-        // TODO: Enviar email con link de pago
-        // await this.emailService.sendRenewalLink(subscription, preference.initPoint);
-
-        this.logger.log(
-          `📧 Email de renovación enviado a ${subscription.shop.owner.email}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `❌ Error al procesar renovación para suscripción ${subscription.id}: ${error.message}`,
-        );
-      }
-    }
-
-    this.logger.log(`✅ Procesamiento de renovaciones completado`);
-  }
-
-  /**
-   * Calcular días hasta expiración
-   */
-  private getDaysUntilExpiration(endDate: Date): number {
-    const today = new Date();
-    const end = new Date(endDate);
-    const diffTime = end.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  }
-
-  /**
-   * Obtener estadísticas de suscripciones (para admin)
-   */
-  async getStats() {
-    const [active, expired, pending, cancelled, failed] = await Promise.all([
-      this.subscriptionRepository.count({ where: { status: SubscriptionStatus.ACTIVE } }),
-      this.subscriptionRepository.count({ where: { status: SubscriptionStatus.EXPIRED } }),
-      this.subscriptionRepository.count({ where: { status: SubscriptionStatus.PENDING } }),
-      this.subscriptionRepository.count({ where: { status: SubscriptionStatus.CANCELLED } }),
-      this.subscriptionRepository.count({ where: { status: SubscriptionStatus.FAILED } }),
-    ]);
+    this.logger.log(`🚫 Suscripción cancelada: ${subscription.id}`);
 
     return {
-      total: active + expired + pending + cancelled + failed,
-      active,
-      expired,
-      pending,
-      cancelled,
-      failed,
+      message: 'Suscripción cancelada exitosamente',
+    };
+  }
+
+  /**
+   * Toggle auto-renovación
+   */
+  async toggleAutoRenew(subscriptionId: string, userId: string) {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { id: subscriptionId, userId },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Suscripción no encontrada');
+    }
+
+    subscription.autoRenew = !subscription.autoRenew;
+    await this.subscriptionRepository.save(subscription);
+
+    return {
+      message: `Renovación automática ${subscription.autoRenew ? 'activada' : 'desactivada'}`,
+      autoRenew: subscription.autoRenew,
     };
   }
 }

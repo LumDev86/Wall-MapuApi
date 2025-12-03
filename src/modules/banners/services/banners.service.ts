@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Banner, BannerStatus } from '../entities/banner.entity';
 import { User, UserRole } from '../../users/entities/user.entity';
 import { CreateBannerDto, UpdateBannerDto, FilterBannersDto } from '../dtos';
-import { MercadoPagoService } from '../../subscriptions/services/mercadopago.service';
+import { MercadoPagoService } from '../../../common/services/mercadopago.service';
 import { CloudinaryService } from '../../../common/services/cloudinary.service';
 
 @Injectable()

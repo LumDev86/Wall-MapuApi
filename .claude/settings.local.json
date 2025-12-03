@@ -6,7 +6,14 @@
       "Bash(npm run typeorm:*)",
       "Bash(npm run migration:generate:*)",
       "Bash(npm run migration:generate:dev:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill /F /PID 22196)",
+      "Bash(powershell -Command \"Stop-Process -Id 22196 -Force\")",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": []
