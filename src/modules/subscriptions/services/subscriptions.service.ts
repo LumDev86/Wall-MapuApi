@@ -36,80 +36,33 @@ export class SubscriptionsService {
    * Crear una nueva suscripción o reintentar una existente
    */
   async create(createSubscriptionDto: CreateSubscriptionDto, user: User) {
-    const { shopId, plan, autoRenew = true } = createSubscriptionDto;
+    const { plan, autoRenew = true } = createSubscriptionDto;
 
-    let shop: Shop | undefined;
+    // Verificar que el usuario no tenga ya una suscripción activa
+    const existingSubscription = await this.subscriptionRepository.findOne({
+      where: {
+        userId: user.id,
+        status: SubscriptionStatus.ACTIVE,
+      },
+    });
 
-    // Si se proporciona shopId, validar el shop
-    if (shopId) {
-      const foundShop = await this.shopRepository.findOne({
-        where: { id: shopId },
-        relations: ['owner', 'subscription'],
-      });
+    if (existingSubscription) {
+      throw new BadRequestException('Ya tienes una suscripción activa');
+    }
 
-      if (!foundShop) {
-        throw new NotFoundException('Shop no encontrado');
-      }
+    // Verificar si tiene suscripciones PENDING o FAILED para reintentar
+    const pendingSubscription = await this.subscriptionRepository.findOne({
+      where: {
+        userId: user.id,
+        status: In([SubscriptionStatus.PENDING, SubscriptionStatus.FAILED]),
+      },
+    });
 
-      shop = foundShop;
-
-      if (shop.owner.id !== user.id) {
-        throw new ForbiddenException('No tienes permiso para crear una suscripción para este shop');
-      }
-
-      // Verificar que el plan coincide con el tipo de shop
-      if (
-        (plan === SubscriptionPlan.RETAILER && shop.type !== 'retailer') ||
-        (plan === SubscriptionPlan.WHOLESALER && shop.type !== 'wholesaler')
-      ) {
-        throw new BadRequestException(
-          `El plan ${plan} no coincide con el tipo de shop ${shop.type}`,
-        );
-      }
-
-      // 🆕 Si el shop ya tiene una suscripción PENDING o FAILED, reutilizarla
-      if (
-        shop.subscription &&
-        (shop.subscription.status === SubscriptionStatus.PENDING ||
-          shop.subscription.status === SubscriptionStatus.FAILED)
-      ) {
-        this.logger.log(
-          `Reintentando pago para suscripción existente: ${shop.subscription.id}`,
-        );
-        return this.retryPayment(shop.subscription.id, user);
-      }
-
-      // Verificar si el shop ya tiene una suscripción activa
-      if (shop.subscription && shop.subscription.status === SubscriptionStatus.ACTIVE) {
-        throw new BadRequestException('El shop ya tiene una suscripción activa');
-      }
-    } else {
-      // Sin shopId: Verificar que el usuario no tenga ya una suscripción activa
-      const existingSubscription = await this.subscriptionRepository.findOne({
-        where: {
-          userId: user.id,
-          status: SubscriptionStatus.ACTIVE,
-        },
-      });
-
-      if (existingSubscription) {
-        throw new BadRequestException('Ya tienes una suscripción activa');
-      }
-
-      // Verificar si tiene suscripciones PENDING o FAILED para reintentar
-      const pendingSubscription = await this.subscriptionRepository.findOne({
-        where: {
-          userId: user.id,
-          status: In([SubscriptionStatus.PENDING, SubscriptionStatus.FAILED]),
-        },
-      });
-
-      if (pendingSubscription) {
-        this.logger.log(
-          `Reintentando pago para suscripción existente: ${pendingSubscription.id}`,
-        );
-        return this.retryPayment(pendingSubscription.id, user);
-      }
+    if (pendingSubscription) {
+      this.logger.log(
+        `Reintentando pago para suscripción existente: ${pendingSubscription.id}`,
+      );
+      return this.retryPayment(pendingSubscription.id, user);
     }
 
     // Calcular fechas
@@ -119,7 +72,7 @@ export class SubscriptionsService {
 
     const amount = this.mercadoPagoService.getPlanPrice(plan);
 
-    // Crear suscripción
+    // Crear suscripción (sin shopId por ahora)
     const subscription = this.subscriptionRepository.create({
       plan,
       status: SubscriptionStatus.PENDING,
@@ -128,7 +81,6 @@ export class SubscriptionsService {
       amount,
       autoRenew,
       userId: user.id,
-      shopId: shopId || undefined,
       nextPaymentDate: endDate,
       failedPaymentAttempts: 0,
     });
@@ -140,18 +92,12 @@ export class SubscriptionsService {
       const { id: preferenceId, initPoint } =
         await this.mercadoPagoService.createSubscriptionPreference(
           subscription.id,
-          shopId || user.id, // Usar userId si no hay shopId
+          user.id, // Usar userId como referencia
           plan,
         );
 
       subscription.mercadoPagoPreapprovalId = preferenceId;
       await this.subscriptionRepository.save(subscription);
-
-      // Invalidar cache solo si hay shop
-      if (shopId) {
-        await this.redisService.del(`shop:${shopId}`);
-        await this.redisService.deleteKeysByPattern('shops:location:*');
-      }
 
       return {
         message: 'Suscripción creada exitosamente. Procede al pago.',
@@ -183,14 +129,14 @@ export class SubscriptionsService {
   async retryPayment(subscriptionId: string, user: User) {
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['shop', 'shop.owner'],
+      relations: ['shop'],
     });
 
     if (!subscription) {
       throw new NotFoundException('Suscripción no encontrada');
     }
 
-    if (subscription.shop.owner.id !== user.id) {
+    if (subscription.userId !== user.id) {
       throw new ForbiddenException('No tienes permiso para reintentar este pago');
     }
 
@@ -215,7 +161,7 @@ export class SubscriptionsService {
       const { id: preferenceId, initPoint } =
         await this.mercadoPagoService.createSubscriptionPreference(
           subscription.id,
-          subscription.shopId,
+          user.id,
           subscription.plan,
         );
 
@@ -258,7 +204,7 @@ export class SubscriptionsService {
 
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['shop'],
+      relations: ['shop', 'user'],
     });
 
     if (!subscription) {
@@ -302,16 +248,29 @@ export class SubscriptionsService {
 
       await this.subscriptionRepository.save(subscription);
 
-      // Actualizar estado del shop (solo en activación inicial)
-      subscription.shop.status = ShopStatus.ACTIVE;
-      await this.shopRepository.save(subscription.shop);
+      // 🆕 Actualizar rol del usuario según el plan
+      const userRole = subscription.plan === SubscriptionPlan.RETAILER
+        ? 'retailer'
+        : 'wholesaler';
 
-      this.logger.log(`✅ Suscripción activada: ${subscriptionId}`);
+      subscription.user.role = userRole as any;
+      await this.subscriptionRepository.manager.save(subscription.user);
+
+      // Actualizar estado del shop (solo si existe)
+      if (subscription.shop) {
+        subscription.shop.status = ShopStatus.ACTIVE;
+        await this.shopRepository.save(subscription.shop);
+        this.logger.log(`✅ Shop activado: ${subscription.shop.name}`);
+      }
+
+      this.logger.log(`✅ Suscripción activada y rol actualizado: ${subscriptionId}`);
     }
 
-    // Invalidar cache
-    await this.redisService.del(`shop:${subscription.shopId}`);
-    await this.redisService.deleteKeysByPattern('shops:location:*');
+    // Invalidar cache (solo si existe shop)
+    if (subscription.shopId) {
+      await this.redisService.del(`shop:${subscription.shopId}`);
+      await this.redisService.deleteKeysByPattern('shops:location:*');
+    }
 
     return subscription;
   }
@@ -462,14 +421,14 @@ export class SubscriptionsService {
   async getPaymentStatus(subscriptionId: string, user: User) {
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['shop', 'shop.owner'],
+      relations: ['shop'],
     });
 
     if (!subscription) {
       throw new NotFoundException('Suscripción no encontrada');
     }
 
-    if (subscription.shop.owner.id !== user.id) {
+    if (subscription.userId !== user.id) {
       throw new ForbiddenException('No tienes permiso para ver esta suscripción');
     }
 

@@ -4,7 +4,9 @@
       "Bash(npm run build:*)",
       "Bash(npm run migration:run:*)",
       "Bash(npm run typeorm:*)",
-      "Bash(npm run migration:generate:*)"
+      "Bash(npm run migration:generate:*)",
+      "Bash(npm run migration:generate:dev:*)",
+      "Bash(npm run:*)"
     ],
     "deny": [],
     "ask": []

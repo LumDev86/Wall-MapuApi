@@ -7,6 +7,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Shop } from '../../shops/entities/shop.entity';
+import { Subscription } from '../../subscriptions/entities/subscription.entity';
 
 export enum UserRole {
   CLIENT = 'client',
@@ -72,6 +73,9 @@ export class User {
   // Relaciones
   @OneToMany(() => Shop, (shop) => shop.owner)
   shops: Shop[];
+
+  @OneToMany(() => Subscription, (subscription) => subscription.user)
+  subscriptions: Subscription[];
 
   @CreateDateColumn()
   createdAt: Date;

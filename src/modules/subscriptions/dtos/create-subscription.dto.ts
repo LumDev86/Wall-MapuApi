@@ -15,14 +15,6 @@ export class CreateSubscriptionDto {
   plan: SubscriptionPlan;
 
   @ApiPropertyOptional({
-    example: 'uuid-del-shop',
-    description: 'ID del shop (opcional - solo si ya tiene un shop creado)',
-  })
-  @IsOptional()
-  @IsUUID()
-  shopId?: string;
-
-  @ApiPropertyOptional({
     example: true,
     description: 'Renovación automática',
     default: true,
