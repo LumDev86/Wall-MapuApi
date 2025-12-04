@@ -10,7 +10,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-import { Shop } from '../../shops/entities/shop.entity';
 
 export enum SubscriptionPlan {
   RETAILER = 'retailer',
@@ -70,12 +69,6 @@ export class Subscription {
 
   @Column()
   userId: string;
-
-  @Column({ nullable: true })
-  shop: Shop;
-
-  @Column({ nullable: true })
-  shopId: string;
 
   @CreateDateColumn()
   createdAt: Date;

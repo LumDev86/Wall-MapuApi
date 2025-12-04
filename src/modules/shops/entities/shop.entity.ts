@@ -102,9 +102,6 @@ export class Shop {
   @OneToMany(() => Product, (product) => product.shop)
   products: Product[];
 
-  @OneToOne(() => Subscription, (subscription) => subscription.shop)
-  subscription: Subscription;
-
   @OneToMany(() => Review, (review) => review.shop)
   reviews: Review[];
 
