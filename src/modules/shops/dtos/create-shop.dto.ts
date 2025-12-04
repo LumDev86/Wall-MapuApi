@@ -58,6 +58,10 @@ description: 'Provincia',
 @Transform(({ value }) => value?.trim())
 province: string;
 
+latitude: number;
+
+longitude: number;
+
 @ApiProperty({
 example: 'Ciudad Autónoma de Buenos Aires',
 description: 'Ciudad o localidad',
