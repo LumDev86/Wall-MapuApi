@@ -9,7 +9,6 @@ import { ShopsModule } from './modules/shops/shops.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
-import { BannersModule } from './modules/banners/banners.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CloudinaryModule } from './common/services/cloudinary.module';
@@ -44,7 +43,6 @@ import { RedisModule } from './common/redis/redis.module';
     ProductsModule,
     CategoriesModule,
     SubscriptionsModule,
-    BannersModule,
     AdminModule,
   ],
   controllers: [AppController],

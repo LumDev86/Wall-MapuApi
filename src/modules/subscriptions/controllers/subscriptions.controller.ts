@@ -2,120 +2,73 @@ import {
   Controller,
   Post,
   Get,
-  Delete,
   Body,
-  Param,
   UseGuards,
+  HttpStatus,
 } from '@nestjs/common';
+
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
+  ApiOperation,
+  ApiTags,
+  ApiResponse,
+  ApiBody,
 } from '@nestjs/swagger';
+
 import { SubscriptionsService } from '../services/subscriptions.service';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
-import { Roles } from '../../../common/decorators/roles.decorator';
+import { CreateSubscriptionDto } from '../dtos';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { User, UserRole } from '../../users/entities/user.entity';
-import {
-  CreateSubscriptionDto,
-  SubscriptionResponseDto,
-  PaymentStatusResponseDto,
-} from '../dtos';
+
+import { Roles } from '../../../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../common/guards/roles.guard';
 
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@ApiBearerAuth()
 export class SubscriptionsController {
-  constructor(private readonly subscriptionsService: SubscriptionsService) {}
+  constructor(private readonly service: SubscriptionsService) {}
 
+  // -------------------------------------------------------------
+  // 🔵 CREAR SUSCRIPCIÓN
+  // -------------------------------------------------------------
   @Post()
   @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Crear una nueva suscripción con pago (Solo RETAILER/WHOLESALER)' })
-  @ApiResponse({
-    status: 201,
-    description: 'Suscripción creada exitosamente',
-    type: SubscriptionResponseDto,
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Crear suscripción mensual' })
+  @ApiBody({
+    description: 'Datos necesarios para crear una suscripción',
+    schema: {
+      example: {
+        plan: "retailer",
+        autoRenew: true
+      }
+    }
   })
-  @ApiResponse({ status: 400, description: 'Ya tienes una suscripción activa' })
-  @ApiResponse({ status: 403, description: 'No tienes permisos (debes ser RETAILER o WHOLESALER)' })
-  async create(
-    @Body() createSubscriptionDto: CreateSubscriptionDto,
-    @CurrentUser() user: User,
-  ) {
-    return this.subscriptionsService.create(createSubscriptionDto, user);
+  @ApiResponse({
+  status: HttpStatus.CREATED,
+  description: 'Suscripción creada y preference generada',
+  schema: {
+    example: {
+      subscriptionId: "uuid-123",
+      preferenceId: "pref-xyz-123",
+      init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123"
+    }
+  }
+  })
+  async create(@Body() dto: CreateSubscriptionDto, @CurrentUser() user: User) {
+    return this.service.create(dto, user);
   }
 
+  // -------------------------------------------------------------
+  // 🔵 OBTENER MI SUSCRIPCIÓN
+  // -------------------------------------------------------------
   @Get('me')
   @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener mi suscripción actual (Solo RETAILER/WHOLESALER)' })
-  @ApiResponse({ status: 200, description: 'Suscripción encontrada' })
-  @ApiResponse({ status: 404, description: 'No tienes ninguna suscripción' })
-  @ApiResponse({ status: 403, description: 'No tienes permisos' })
+  @ApiOperation({ summary: 'Obtener mi suscripción actual' })
   async getMySubscription(@CurrentUser() user: User) {
-    return this.subscriptionsService.findMySubscription(user.id);
-  }
-
-  @Get(':id/payment-status')
-  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Obtener estado del pago de una suscripción (Solo RETAILER/WHOLESALER)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Estado del pago',
-    type: PaymentStatusResponseDto,
-  })
-  @ApiResponse({ status: 404, description: 'Suscripción no encontrada' })
-  @ApiResponse({ status: 403, description: 'No tienes permisos' })
-  async getPaymentStatus(
-    @Param('id') id: string,
-    @CurrentUser() user: User,
-  ) {
-    return this.subscriptionsService.getPaymentStatus(id, user.id);
-  }
-
-  @Post(':id/retry-payment')
-  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Reintentar pago de una suscripción (Solo RETAILER/WHOLESALER)' })
-  @ApiResponse({ status: 200, description: 'Nuevo link de pago generado' })
-  @ApiResponse({
-    status: 400,
-    description: 'Límite de intentos alcanzado o estado inválido',
-  })
-  @ApiResponse({ status: 403, description: 'No tienes permisos' })
-  async retryPayment(@Param('id') id: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.retryPayment(id, user);
-  }
-
-  @Delete(':id/cancel')
-  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Cancelar una suscripción (Solo RETAILER/WHOLESALER)' })
-  @ApiResponse({ status: 200, description: 'Suscripción cancelada' })
-  @ApiResponse({ status: 404, description: 'Suscripción no encontrada' })
-  @ApiResponse({ status: 403, description: 'No tienes permisos' })
-  async cancelSubscription(@Param('id') id: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.cancelSubscription(id, user.id);
-  }
-
-  @Post(':id/toggle-auto-renew')
-  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary: 'Activar/desactivar renovación automática (Solo RETAILER/WHOLESALER)',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Renovación automática actualizada',
-  })
-  @ApiResponse({ status: 403, description: 'No tienes permisos' })
-  async toggleAutoRenew(@Param('id') id: string, @CurrentUser() user: User) {
-    return this.subscriptionsService.toggleAutoRenew(id, user.id);
+    return this.service.findMySubscription(user.id);
   }
 }

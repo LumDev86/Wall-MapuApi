@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean } from 'class-validator';
 
 export class MercadoPagoWebhookDto {
   @IsOptional()
@@ -22,8 +22,9 @@ export class MercadoPagoWebhookDto {
   @IsNumber()
   id?: number;
 
+  // ✅ CORREGIDO: Debe ser @IsBoolean() no @IsString()
   @IsOptional()
-  @IsString()
+  @IsBoolean()
   live_mode?: boolean;
 
   @IsOptional()
