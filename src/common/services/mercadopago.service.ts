@@ -56,8 +56,7 @@ export class MercadoPagoService {
     // La respuesta de MercadoPago viene anidada
     return {
       id: response.id,
-      init_point: response.init_point,
-      sandbox_init_point: response.sandbox_init_point,
+      init_point: response.sandbox_init_point,
     };
   }
 

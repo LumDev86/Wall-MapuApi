@@ -14,8 +14,8 @@ import { User } from '../../users/entities/user.entity';
 export class SubscriptionsService {
   // Precios fijos
   private readonly PLAN_PRICES = {
-    retailer: 5000,
-    wholesaler: 8000,
+    retailer: 18000,
+    wholesaler: 20000,
   };
 
   constructor(
