@@ -5,6 +5,7 @@ import {
   Body,
   UseGuards,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 
 import {
@@ -13,10 +14,11 @@ import {
   ApiTags,
   ApiResponse,
   ApiBody,
+  ApiQuery,
 } from '@nestjs/swagger';
 
 import { SubscriptionsService } from '../services/subscriptions.service';
-import { CreateSubscriptionDto } from '../dtos';
+import { CreateSubscriptionDto, FilterSubscriptionsDto } from '../dtos';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { User, UserRole } from '../../users/entities/user.entity';
 
@@ -60,6 +62,98 @@ export class SubscriptionsController {
   })
   async create(@Body() dto: CreateSubscriptionDto, @CurrentUser() user: User) {
     return this.service.create(dto, user);
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 LISTAR TODAS LAS SUSCRIPCIONES (ADMIN)
+  // -------------------------------------------------------------
+  @Get()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Listar todas las suscripciones con filtros (solo admin)' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Lista paginada de suscripciones',
+    schema: {
+      example: {
+        data: [
+          {
+            id: 'uuid-123',
+            plan: 'retailer',
+            status: 'active',
+            amount: 18000,
+            userId: 'uuid-456',
+            user: {
+              id: 'uuid-456',
+              email: 'user@example.com',
+              name: 'John Doe'
+            },
+            createdAt: '2024-01-01T00:00:00.000Z'
+          }
+        ],
+        meta: {
+          total: 50,
+          page: 1,
+          limit: 10,
+          totalPages: 5
+        }
+      }
+    }
+  })
+  async findAll(@Query() filters: FilterSubscriptionsDto) {
+    return this.service.findAll(filters);
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 VER MI HISTORIAL DE SUSCRIPCIONES
+  // -------------------------------------------------------------
+  @Get('history')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER, UserRole.CLIENT)
+  @ApiOperation({ summary: 'Ver mi historial completo de suscripciones' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Número de página (default: 1)'
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Resultados por página (default: 10, max: 100)'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Historial de suscripciones del usuario',
+    schema: {
+      example: {
+        data: [
+          {
+            id: 'uuid-123',
+            plan: 'retailer',
+            status: 'active',
+            amount: 18000,
+            startDate: '2024-01-01T00:00:00.000Z',
+            nextPaymentDate: '2024-02-01T00:00:00.000Z',
+            createdAt: '2024-01-01T00:00:00.000Z'
+          }
+        ],
+        meta: {
+          total: 3,
+          page: 1,
+          limit: 10,
+          totalPages: 1
+        }
+      }
+    }
+  })
+  async getMyHistory(
+    @CurrentUser() user: User,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number
+  ) {
+    return this.service.findUserHistory(user.id, page, limit);
   }
 
   // -------------------------------------------------------------

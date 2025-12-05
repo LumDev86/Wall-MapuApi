@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
 import { Shop } from '../../shops/entities/shop.entity';
@@ -8,6 +8,7 @@ import { ShopStatus } from '../../shops/entities/shop.entity';
 
 import { MercadoPagoService } from '../../../common/services/mercadopago.service';
 import { CreateSubscriptionDto } from '../dtos/create-subscription.dto';
+import { FilterSubscriptionsDto } from '../dtos/filter-subscriptions.dto';
 import { User } from '../../users/entities/user.entity';
 
 @Injectable()
@@ -128,5 +129,83 @@ export class SubscriptionsService {
       console.error('Error processing webhook:', error);
       throw error;
     }
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 LISTAR TODAS LAS SUSCRIPCIONES (ADMIN)
+  // -------------------------------------------------------------
+  async findAll(filters: FilterSubscriptionsDto) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const whereConditions: Record<string, any> = {};
+
+    // Aplicar filtros
+    if (filters.status) {
+      whereConditions.status = filters.status;
+    }
+
+    if (filters.plan) {
+      whereConditions.plan = filters.plan;
+    }
+
+    if (filters.userId) {
+      whereConditions.userId = filters.userId;
+    }
+
+    // Filtro por rango de fechas
+    if (filters.startDate && filters.endDate) {
+      whereConditions.createdAt = Between(
+        new Date(filters.startDate),
+        new Date(filters.endDate)
+      );
+    } else if (filters.startDate) {
+      whereConditions.createdAt = MoreThanOrEqual(new Date(filters.startDate));
+    } else if (filters.endDate) {
+      whereConditions.createdAt = LessThanOrEqual(new Date(filters.endDate));
+    }
+
+    const [data, total] = await this.subsRepo.findAndCount({
+      where: whereConditions,
+      relations: ['user'],
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip,
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 VER MI HISTORIAL DE SUSCRIPCIONES
+  // -------------------------------------------------------------
+  async findUserHistory(userId: string, page = 1, limit = 10) {
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await this.subsRepo.findAndCount({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip,
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }

@@ -8,6 +8,7 @@ import { Repository, IsNull } from 'typeorm';
 import { Category } from './entities/category.entity';
 import { CreateCategoryMultipartDto } from './dtos/create-category-multipart.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
+import { CategoryResponseDto } from './dtos/category-response.dto';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { Product } from '../products/entities/product.entity';
@@ -58,14 +59,24 @@ export class CategoriesService {
       icon: iconUrl || null,
     });
 
-    await this.categoryRepository.save(category);
+    const savedCategory = await this.categoryRepository.save(category);
 
     // 🗑️ INVALIDAR CACHE
     await this.redisService.del('categories:all:active');
 
+    // Cargar relaciones para el DTO
+    const categoryWithRelations = await this.categoryRepository.findOne({
+      where: { id: savedCategory.id },
+      relations: ['parent', 'subcategories'],
+    });
+
+    if (!categoryWithRelations) {
+      throw new NotFoundException('Error al cargar la categoría creada');
+    }
+
     return {
       message: 'Categoría creada exitosamente',
-      category,
+      category: CategoryResponseDto.fromEntity(categoryWithRelations, true),
     };
   }
 
@@ -86,7 +97,7 @@ export class CategoriesService {
 
     const result = {
       total: categories.length,
-      categories,
+      categories: categories.map(cat => CategoryResponseDto.fromEntity(cat, true)),
     };
 
     // 🚀 GUARDAR EN CACHE (10 minutos)
@@ -113,10 +124,12 @@ export class CategoriesService {
       throw new NotFoundException('Categoría no encontrada');
     }
 
-    // 🚀 GUARDAR EN CACHE (5 minutos)
-    await this.redisService.setJSON(cacheKey, category, 300);
+    const result = CategoryResponseDto.fromEntity(category, true);
 
-    return category;
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, result, 300);
+
+    return result;
   }
 
   async update(
@@ -174,15 +187,25 @@ export class CategoriesService {
       }
     });
 
-    await this.categoryRepository.save(category);
+    const savedCategory = await this.categoryRepository.save(category);
 
     // 🗑️ INVALIDAR CACHE
     await this.redisService.del('categories:all:active');
     await this.redisService.del(`category:${id}`);
 
+    // Cargar relaciones para el DTO
+    const categoryWithRelations = await this.categoryRepository.findOne({
+      where: { id: savedCategory.id },
+      relations: ['parent', 'subcategories'],
+    });
+
+    if (!categoryWithRelations) {
+      throw new NotFoundException('Error al cargar la categoría actualizada');
+    }
+
     return {
       message: 'Categoría actualizada exitosamente',
-      category,
+      category: CategoryResponseDto.fromEntity(categoryWithRelations, true),
     };
   }
 
@@ -236,17 +259,36 @@ export class CategoriesService {
     // 🔥 3. Traer productos paginados desde la base
     const [products, total] = await this.productRepository.findAndCount({
       where: { categoryId },
+      relations: ['shop', 'category'],
       skip: offset,
       take: limit,
       order: { createdAt: 'DESC' },
     });
 
+    const totalPages = Math.ceil(total / limit);
+
     const result = {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-      products,
+      data: products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        priceRetail: product.priceRetail,
+        priceWholesale: product.priceWholesale,
+        stock: product.stock,
+        images: product.images || [],
+        shop: product.shop ? {
+          id: product.shop.id,
+          name: product.shop.name,
+          type: product.shop.type,
+        } : undefined,
+      })),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
 
     // 🔥 4. Guardar en cache por 60 segundos

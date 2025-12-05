@@ -21,7 +21,7 @@ export class Review {
   @Column({ type: 'text', nullable: true })
   comment: string;
 
-  @ManyToOne(() => User, { eager: true })
+  @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })
   user: User;
 

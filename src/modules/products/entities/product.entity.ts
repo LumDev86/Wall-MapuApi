@@ -48,14 +48,14 @@ export class Product {
   @Column({ default: true })
   isActive: boolean;
 
-  @ManyToOne(() => Shop, (shop) => shop.products, { eager: true })
+  @ManyToOne(() => Shop, (shop) => shop.products)
   @JoinColumn({ name: 'shopId' })
   shop: Shop;
 
   @Column()
   shopId: string;
 
-  @ManyToOne(() => Category, (category) => category.products, { eager: true })
+  @ManyToOne(() => Category, (category) => category.products)
   @JoinColumn({ name: 'categoryId' })
   category: Category;
 

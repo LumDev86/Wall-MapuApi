@@ -96,7 +96,7 @@ export class Shop {
   isActive: boolean;
 
   // Relaciones
-  @ManyToOne(() => User, (user) => user.shops, { eager: true })
+  @ManyToOne(() => User, (user) => user.shops)
   owner: User;
 
   @OneToMany(() => Product, (product) => product.shop)

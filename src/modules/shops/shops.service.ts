@@ -14,6 +14,7 @@ import { Shop, ShopStatus, ShopType } from './entities/shop.entity';
 import { CreateShopDto } from './dtos/create-shop.dto';
   import { UpdateShopDto } from './dtos/update-shop.dto';
 import { FilterShopsDto } from './dtos/filter-shops.dto';
+import { ShopResponseDto } from './dtos/shop-response.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
 import { GeocodingService } from '../../common/services/geocoding.service';
@@ -107,13 +108,23 @@ export class ShopsService {
       status: ShopStatus.ACTIVE,
     });
 
-    await this.shopRepository.save(shop);
+    const savedShop = await this.shopRepository.save(shop);
 
     await this.redisService.deleteKeysByPattern('shops:location:*');
 
+    // Cargar relaciones para el DTO
+    const shopWithRelations = await this.shopRepository.findOne({
+      where: { id: savedShop.id },
+      relations: ['owner'],
+    });
+
+    if (!shopWithRelations) {
+      throw new NotFoundException('Error al cargar el local creado');
+    }
+
     return {
       message: 'Local registrado exitosamente.',
-      shop: this.sanitizeShop(shop),
+      shop: ShopResponseDto.fromEntity(shopWithRelations, true, false),
       geocodedAddress: formattedAddress,
     };
   }
@@ -187,15 +198,25 @@ export class ShopsService {
     }
 
     Object.assign(shop, updateShopDto);
-    await this.shopRepository.save(shop);
+    const savedShop = await this.shopRepository.save(shop);
 
     await this.redisService.del(`shop:${id}`);
     await this.redisService.deleteKeysByPattern('shops:location:*');
     await this.redisService.deleteKeysByPattern('shops:product:*');
 
+    // Cargar relaciones para el DTO
+    const shopWithRelations = await this.shopRepository.findOne({
+      where: { id: savedShop.id },
+      relations: ['owner'],
+    });
+
+    if (!shopWithRelations) {
+      throw new NotFoundException('Error al cargar el local actualizado');
+    }
+
     return {
       message: 'Local actualizado exitosamente',
-      shop: this.sanitizeShop(shop),
+      shop: ShopResponseDto.fromEntity(shopWithRelations, true, false),
     };
   }
 
@@ -206,14 +227,14 @@ export class ShopsService {
   async findMyShop(user: User) {
     const shop = await this.shopRepository.findOne({
       where: { owner: { id: user.id } },
-      relations: ['products', 'subscription'],
+      relations: ['owner', 'products'],
     });
 
     if (!shop) {
       throw new NotFoundException('El usuario no tiene un local registrado');
     }
 
-    return this.sanitizeShop(shop);
+    return ShopResponseDto.fromEntity(shop, true, true);
   }
 
   // ============================================
@@ -283,11 +304,18 @@ export class ShopsService {
 
     const [data, total] = await query.getManyAndCount();
 
+    const totalPages = Math.ceil(total / limit);
+
     return {
-      total,
-      page,
-      limit,
-      data: data.map((s) => this.sanitizeShop(s)),
+      data: data.map((shop) => ShopResponseDto.fromEntity(shop, false, false)),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
   }
 
@@ -310,10 +338,26 @@ export class ShopsService {
       take: limit,
     });
 
+    const totalPages = Math.ceil(total / limit);
+
     return {
-      shop: this.sanitizeShop(shop),
-      products,
-      pagination: { total, page, limit },
+      shop: ShopResponseDto.fromEntity(shop, true, false),
+      products: products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceRetail: p.priceRetail,
+        priceWholesale: p.priceWholesale,
+        stock: p.stock,
+        images: p.images || [],
+      })),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
   }
 

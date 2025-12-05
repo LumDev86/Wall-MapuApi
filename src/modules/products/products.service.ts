@@ -11,6 +11,7 @@ import { CreateProductDto } from './dtos/create-product.dto';
 import { UpdateProductDto } from './dtos/update-product.dto';
 import { FilterProductsDto } from './dtos/filter-products.dto';
 import { SearchProductsDto } from './dtos/search-products.dto';
+import { ProductResponseDto } from './dtos/product-response.dto';
 import { User } from '../users/entities/user.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { Category } from '../categories/entities/category.entity';
@@ -72,15 +73,25 @@ export class ProductsService {
       images: imageUrls,
     });
 
-    await this.productRepository.save(product);
+    const savedProduct = await this.productRepository.save(product);
 
     // 🗑️ INVALIDAR CACHE
     await this.redisService.deleteKeysByPattern('products:search:*');
     await this.redisService.deleteKeysByPattern(`products:shop:${shopId}:*`);
 
+    // Cargar relaciones para el DTO
+    const productWithRelations = await this.productRepository.findOne({
+      where: { id: savedProduct.id },
+      relations: ['shop', 'category'],
+    });
+
+    if (!productWithRelations) {
+      throw new NotFoundException('Error al cargar el producto creado');
+    }
+
     return {
       message: 'Producto creado exitosamente',
-      product,
+      product: ProductResponseDto.fromEntity(productWithRelations, true),
     };
   }
 
@@ -152,7 +163,7 @@ export class ProductsService {
     const totalPages = Math.ceil(total / limit);
 
     const result = {
-      data: products,
+      data: products.map((product) => ProductResponseDto.fromEntity(product, true)),
       pagination: {
         total,
         page,
@@ -223,7 +234,7 @@ export class ProductsService {
     const totalPages = Math.ceil(total / limit);
 
     const result = {
-      data: products,
+      data: products.map((product) => ProductResponseDto.fromEntity(product, true)),
       pagination: {
         total,
         page,
@@ -258,10 +269,12 @@ export class ProductsService {
       throw new NotFoundException('Producto no encontrado');
     }
 
-    // 🚀 GUARDAR EN CACHE (5 minutos)
-    await this.redisService.setJSON(cacheKey, product, 300);
+    const result = ProductResponseDto.fromEntity(product, true);
 
-    return product;
+    // 🚀 GUARDAR EN CACHE (5 minutos)
+    await this.redisService.setJSON(cacheKey, result, 300);
+
+    return result;
   }
 
   /**
@@ -419,16 +432,26 @@ export class ProductsService {
     }
 
     Object.assign(product, updateProductDto);
-    await this.productRepository.save(product);
+    const savedProduct = await this.productRepository.save(product);
 
     // 🗑️ INVALIDAR CACHE
     await this.redisService.del(`product:${id}`);
     await this.redisService.deleteKeysByPattern('products:search:*');
     await this.redisService.deleteKeysByPattern(`products:shop:${product.shopId}:*`);
 
+    // Cargar relaciones para el DTO
+    const productWithRelations = await this.productRepository.findOne({
+      where: { id: savedProduct.id },
+      relations: ['shop', 'category'],
+    });
+
+    if (!productWithRelations) {
+      throw new NotFoundException('Error al cargar el producto actualizado');
+    }
+
     return {
       message: 'Producto actualizado exitosamente',
-      product,
+      product: ProductResponseDto.fromEntity(productWithRelations, true),
     };
   }
 
