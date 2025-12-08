@@ -17,7 +17,6 @@ import { FilterShopsDto } from './dtos/filter-shops.dto';
 import { ShopResponseDto } from './dtos/shop-response.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
-import { GeocodingService } from '../../common/services/geocoding.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
 
@@ -28,7 +27,6 @@ export class ShopsService {
     private shopRepository: Repository<Shop>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    private geocodingService: GeocodingService,
     private cloudinaryService: CloudinaryService,
     private redisService: RedisService,
   ) {}
@@ -56,27 +54,11 @@ export class ShopsService {
       );
     }
 
-    // GEO OBLIGATORIO
-    let latitude: number;
-    let longitude: number;
-    let formattedAddress: string | null = null;
-
-    try {
-      const geo = await this.geocodingService.geocodeAddress(
-        createShopDto.address,
-        createShopDto.city,
-        createShopDto.province,
-      );
-
-      latitude = geo.latitude;
-      longitude = geo.longitude;
-      formattedAddress = geo.formattedAddress;
-
-    } catch (error) {
-      throw new BadRequestException(
-        'No se pudo obtener la ubicación. Verifica que los datos de dirección sean correctos.',
-      );
-    }
+    // Coordenadas REQUERIDAS desde el frontend (LocationPicker)
+    // Ya no se hace geocoding en el backend
+    const latitude = createShopDto.latitude;
+    const longitude = createShopDto.longitude;
+    const formattedAddress = `${createShopDto.address}, ${createShopDto.city}, ${createShopDto.province}`;
 
     // Logo
     let logoUrl: string | undefined = undefined;
@@ -186,16 +168,8 @@ export class ShopsService {
       );
     }
 
-    // GEO OBLIGATORIO
-    try {
-      const geo = await this.geocodingService.geocodeAddress(address, city, province);
-      updateShopDto.latitude = geo.latitude;
-      updateShopDto.longitude = geo.longitude;
-    } catch (error) {
-      throw new BadRequestException(
-        'No se pudo obtener la nueva ubicación. Verifica los datos ingresados.',
-      );
-    }
+    // Si se enviaron coordenadas desde el frontend, usarlas
+    // Ya no se hace geocoding en el backend - las coordenadas vienen del frontend (LocationPicker)
 
     Object.assign(shop, updateShopDto);
     const savedShop = await this.shopRepository.save(shop);

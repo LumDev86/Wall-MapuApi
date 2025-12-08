@@ -14,7 +14,13 @@
       "Bash(taskkill /F /PID 22196)",
       "Bash(powershell -Command \"Stop-Process -Id 22196 -Force\")",
       "Bash(powershell -Command:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git apply:*)",
+      "Bash(node fix-api.js:*)",
+      "Bash(cat:*)",
+      "Bash(node fix-frontend-geolocation.js:*)",
+      "Bash(node fix-api-coordinates.js:*)",
+      "Bash(node add-coordinates-validation.js:*)"
     ],
     "deny": [],
     "ask": []

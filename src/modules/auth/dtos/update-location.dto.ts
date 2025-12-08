@@ -1,5 +1,6 @@
-import { IsString, MaxLength, IsOptional } from 'class-validator';
+import { IsString, MaxLength, IsOptional, IsNumber } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class UpdateLocationDto {
   @ApiPropertyOptional({
@@ -28,4 +29,20 @@ export class UpdateLocationDto {
   @IsOptional()
   @MaxLength(255, { message: 'El domicilio no puede tener más de 255 caracteres' })
   address?: string;
+
+  @ApiProperty({
+    example: -34.6037,
+    description: 'Latitud del usuario (REQUERIDA desde frontend)',
+  })
+  @IsNumber({}, { message: 'La latitud debe ser un número válido' })
+  @Transform(({ value }) => parseFloat(value))
+  latitude: number;
+
+  @ApiProperty({
+    example: -58.3816,
+    description: 'Longitud del usuario (REQUERIDA desde frontend)',
+  })
+  @IsNumber({}, { message: 'La longitud debe ser un número válido' })
+  @Transform(({ value }) => parseFloat(value))
+  longitude: number;
 }

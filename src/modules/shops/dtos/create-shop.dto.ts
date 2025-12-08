@@ -5,6 +5,7 @@ IsOptional,
 IsObject,
 IsEmail,
 IsUrl,
+IsNumber,
 MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -58,8 +59,20 @@ description: 'Provincia',
 @Transform(({ value }) => value?.trim())
 province: string;
 
+@ApiProperty({
+example: -34.6037,
+description: 'Latitud (REQUERIDA desde frontend - LocationPicker)',
+})
+@IsNumber({}, { message: 'La latitud debe ser un número válido' })
+@Transform(({ value }) => parseFloat(value))
 latitude: number;
 
+@ApiProperty({
+example: -58.3816,
+description: 'Longitud (REQUERIDA desde frontend - LocationPicker)',
+})
+@IsNumber({}, { message: 'La longitud debe ser un número válido' })
+@Transform(({ value }) => parseFloat(value))
 longitude: number;
 
 @ApiProperty({

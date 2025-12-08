@@ -203,28 +203,17 @@ export class AuthService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    const { province, city, address } = updateLocationDto;
+    const { province, city, address, latitude, longitude } = updateLocationDto;
 
     // Actualizar campos de dirección si se proporcionan
     if (province !== undefined) user.province = province;
     if (city !== undefined) user.city = city;
     if (address !== undefined) user.address = address;
 
-    // Geocodificación automática solo si hay dirección
-    if (address || user.address) {
-      try {
-        const geoResult = await this.geocodingService.geocodeAddress(
-          address || user.address,
-          city || user.city,
-          province || user.province,
-        );
-        user.latitude = geoResult.latitude;
-        user.longitude = geoResult.longitude;
-      } catch (error) {
-        // Si falla la geocodificación, continuar sin actualizar coordenadas
-        console.warn(`Geocodificación falló para usuario ${user.email}:`, error.message);
-      }
-    }
+    // Coordenadas REQUERIDAS desde el frontend
+    // Ya no se hace geocoding en el backend
+    user.latitude = latitude;
+    user.longitude = longitude;
 
     await this.userRepository.save(user);
 
