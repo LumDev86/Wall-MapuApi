@@ -33,14 +33,17 @@ export class AuthController {
   // REGISTRO
   // -------------------------
   @Post('register')
-  @ApiOperation({ summary: 'Registrar nuevo usuario' })
+  @ApiOperation({
+    summary: 'Registrar nuevo usuario',
+    description: 'Crea una nueva cuenta de usuario con email y contraseña. Retorna un token JWT para autenticación inmediata. El email debe ser único en el sistema.'
+  })
   @ApiResponse({
     status: 201,
-    description: 'Usuario registrado exitosamente',
+    description: 'Usuario registrado exitosamente. Retorna el usuario creado y un token de acceso JWT.',
   })
   @ApiResponse({
     status: 409,
-    description: 'El email ya está registrado',
+    description: 'El email ya está registrado en el sistema. Use otro email o recupere su contraseña.',
   })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
@@ -51,14 +54,17 @@ export class AuthController {
   // -------------------------
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiOperation({
+    summary: 'Iniciar sesión',
+    description: 'Autentica al usuario con email y contraseña. Retorna un token JWT para usar en peticiones protegidas.'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Login exitoso',
+    description: 'Login exitoso. Retorna el usuario y un token de acceso JWT válido.',
   })
   @ApiResponse({
     status: 401,
-    description: 'Credenciales inválidas',
+    description: 'Credenciales inválidas. Email o contraseña incorrectos.',
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
@@ -69,10 +75,13 @@ export class AuthController {
   // -------------------------
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Enviar email de recuperación de contraseña' })
+  @ApiOperation({
+    summary: 'Solicitar recuperación de contraseña',
+    description: 'Envía un email con un token para restablecer la contraseña. Por seguridad, siempre retorna 200 aunque el email no exista en el sistema.'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Email enviado (si el usuario existe)',
+    description: 'Solicitud procesada. Si el email existe, se enviará un correo con instrucciones.',
   })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
@@ -83,14 +92,17 @@ export class AuthController {
   // -------------------------
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Restablecer contraseña mediante token' })
+  @ApiOperation({
+    summary: 'Restablecer contraseña',
+    description: 'Permite establecer una nueva contraseña usando el token recibido por email. El token tiene una validez limitada (generalmente 1 hora).'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Contraseña actualizada exitosamente',
+    description: 'Contraseña actualizada exitosamente. Puede iniciar sesión con la nueva contraseña.',
   })
   @ApiResponse({
     status: 404,
-    description: 'Token inválido o expirado',
+    description: 'Token inválido o expirado. Solicite un nuevo token de recuperación.',
   })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
@@ -102,14 +114,17 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Obtener usuario autenticado' })
+  @ApiOperation({
+    summary: 'Obtener usuario autenticado',
+    description: 'Retorna los datos básicos del usuario actualmente autenticado según el token JWT. Para obtener el perfil completo con mascotas, use GET /users/profile.'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Datos del usuario actual',
+    description: 'Datos básicos del usuario autenticado.',
   })
   @ApiResponse({
     status: 401,
-    description: 'No autorizado',
+    description: 'Token de autenticación inválido o expirado.',
   })
   async getProfile(@CurrentUser() user: User) {
     return { user };
@@ -121,14 +136,17 @@ export class AuthController {
   @Patch('location')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @ApiOperation({ summary: 'Actualizar ubicación del usuario' })
+  @ApiOperation({
+    summary: 'Actualizar ubicación del usuario',
+    description: 'Actualiza la dirección y coordenadas geográficas del usuario. Útil para búsquedas de tiendas cercanas basadas en la ubicación del usuario.'
+  })
   @ApiResponse({
     status: 200,
-    description: 'Ubicación actualizada exitosamente',
+    description: 'Ubicación actualizada exitosamente. Incluye dirección, ciudad, provincia, latitud y longitud.',
   })
   @ApiResponse({
     status: 401,
-    description: 'No autorizado',
+    description: 'Token de autenticación inválido o expirado.',
   })
   async updateLocation(
     @CurrentUser() user: User,

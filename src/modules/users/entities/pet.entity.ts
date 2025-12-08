@@ -15,6 +15,11 @@ export enum PetType {
   OTHER = 'other',
 }
 
+export enum PetGender {
+  MALE = 'male',
+  FEMALE = 'female',
+}
+
 @Entity('user_pets')
 export class Pet {
   @PrimaryGeneratedColumn('uuid')
@@ -41,6 +46,16 @@ export class Pet {
 
   @Column({ length: 50, nullable: true })
   age: string;
+
+  @Column({ type: 'date', nullable: true })
+  birthDate: Date;
+
+  @Column({
+    type: 'enum',
+    enum: PetGender,
+    nullable: true,
+  })
+  gender: PetGender;
 
   @CreateDateColumn()
   createdAt: Date;

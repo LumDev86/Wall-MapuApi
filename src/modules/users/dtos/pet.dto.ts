@@ -1,6 +1,6 @@
-import { IsString, IsEnum, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsEnum, IsOptional, MaxLength, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PetType } from '../entities/pet.entity';
+import { PetType, PetGender } from '../entities/pet.entity';
 
 export class PetDto {
   @ApiProperty({
@@ -43,4 +43,21 @@ export class PetDto {
   @IsOptional()
   @MaxLength(50, { message: 'La edad no puede tener más de 50 caracteres' })
   age?: string;
+
+  @ApiPropertyOptional({
+    example: '2020-05-15T00:00:00.000Z',
+    description: 'Fecha de nacimiento de la mascota',
+  })
+  @IsDateString({}, { message: 'La fecha de nacimiento debe ser una fecha válida' })
+  @IsOptional()
+  birthDate?: string;
+
+  @ApiPropertyOptional({
+    enum: PetGender,
+    example: PetGender.MALE,
+    description: 'Sexo de la mascota',
+  })
+  @IsEnum(PetGender, { message: 'El sexo debe ser: male o female' })
+  @IsOptional()
+  gender?: PetGender;
 }
