@@ -33,17 +33,19 @@ export class CreateProductDto {
   @Transform(({ value }) => value?.trim())
   description?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: 45000,
     description: 'Precio al público (minorista)',
   })
+  @IsOptional()
   @Transform(({ value }) => {
+    if (!value || value === '' || value === 'null') return undefined;
     const parsed = parseFloat(value);
     return isNaN(parsed) ? value : parsed;
   })
   @IsNumber()
   @Min(0.01, { message: 'El precio debe ser mayor a 0' })
-  priceRetail: number;
+  priceRetail?: number;
 
   @ApiPropertyOptional({
     example: 38000,

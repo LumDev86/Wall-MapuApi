@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { Shop } from '../../shops/entities/shop.entity';
 
 export enum SubscriptionPlan {
   RETAILER = 'retailer',
@@ -22,7 +23,7 @@ export enum SubscriptionStatus {
   CANCELLED = 'cancelled',
   EXPIRED = 'expired',
   PAUSED = 'paused',
-  FAILED = 'failed', // ✅ Agregado
+  FAILED = 'failed',
 }
 
 @Entity('subscriptions')
@@ -43,7 +44,6 @@ export class Subscription {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   amount: number;
 
-  // Mercado Pago preapproval ID
   @Column({ nullable: true })
   preapprovalId: string;
 
@@ -53,7 +53,6 @@ export class Subscription {
   @Column({ type: 'timestamp', nullable: true })
   startDate: Date;
 
-  // ✅ AGREGADO: Campo que faltaba
   @Column({ type: 'timestamp', nullable: true })
   lastPaymentDate: Date;
 
@@ -69,6 +68,13 @@ export class Subscription {
 
   @Column()
   userId: string;
+
+  @ManyToOne(() => Shop, { nullable: true })
+  @JoinColumn({ name: 'shopId' })
+  shop: Shop;
+
+  @Column({ nullable: true })
+  shopId: string;
 
   @CreateDateColumn()
   createdAt: Date;
