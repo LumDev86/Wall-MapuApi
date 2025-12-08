@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
 import { Shop } from '../../shops/entities/shop.entity';
@@ -91,7 +91,10 @@ export class SubscriptionsService {
   // -------------------------------------------------------------
   async findMySubscription(userId: string) {
     const subscription = await this.subsRepo.findOne({
-      where: { userId },
+      where: {
+        userId,
+        status: In([SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING]),
+      },
       order: { createdAt: 'DESC' },
     });
 
