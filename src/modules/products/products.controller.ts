@@ -8,16 +8,12 @@ import {
   Delete,
   UseGuards,
   Query,
-  UseInterceptors,
-  UploadedFiles,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
-  ApiConsumes,
   ApiBody,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -38,37 +34,14 @@ export class ProductsController {
   @Post('shop/:shopId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @UseInterceptors(FilesInterceptor('images', 5)) // Máximo 5 imágenes
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Crear producto con imágenes' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', example: 'Royal Canin Adulto 15kg' },
-        description: { type: 'string' },
-        priceRetail: { type: 'number', example: 45000 },
-        priceWholesale: { type: 'number', example: 38000 },
-        stock: { type: 'number', example: 50 },
-        sku: { type: 'string' },
-        barcode: { type: 'string' },
-        brand: { type: 'string' },
-        categoryId: { type: 'string' },
-        images: {
-          type: 'array',
-          items: { type: 'string', format: 'binary' },
-        },
-      },
-    },
-  })
+  @ApiOperation({ summary: 'Crear producto' })
   @ApiResponse({ status: 201, description: 'Producto creado' })
   create(
     @Param('shopId') shopId: string,
     @Body() createProductDto: CreateProductDto,
     @CurrentUser() user: User,
-    @UploadedFiles() images: Express.Multer.File[],
   ) {
-    return this.productsService.create(createProductDto, shopId, user, images);
+    return this.productsService.create(createProductDto, shopId, user);
   }
 
   @Get()
@@ -194,17 +167,14 @@ export class ProductsController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
-  @UseInterceptors(FilesInterceptor('images', 5))
-  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Actualizar producto (solo dueño del shop)' })
   @ApiResponse({ status: 200, description: 'Producto actualizado' })
   update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
     @CurrentUser() user: User,
-    @UploadedFiles() images: Express.Multer.File[],
   ) {
-    return this.productsService.update(id, updateProductDto, user, images);
+    return this.productsService.update(id, updateProductDto, user);
   }
 
   @Delete(':id')

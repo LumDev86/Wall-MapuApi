@@ -9,7 +9,6 @@ import { Category } from './entities/category.entity';
 import { CreateCategoryMultipartDto } from './dtos/create-category-multipart.dto';
 import { UpdateCategoryDto } from './dtos/update-category.dto';
 import { CategoryResponseDto } from './dtos/category-response.dto';
-import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
 import { Product } from '../products/entities/product.entity';
 
@@ -18,7 +17,6 @@ export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
-    private readonly cloudinaryService: CloudinaryService,
     private redisService: RedisService,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
@@ -26,7 +24,6 @@ export class CategoriesService {
 
   async create(
     createCategoryDto: CreateCategoryMultipartDto,
-    icon?: Express.Multer.File,
   ) {
     const { parentId, ...data } = createCategoryDto;
 
@@ -46,17 +43,9 @@ export class CategoriesService {
       }
     }
 
-    let iconUrl: string | null = null;
-
-    if (icon) {
-      const upload = await this.cloudinaryService.uploadImage(icon, 'categories');
-      iconUrl = upload.secure_url;
-    }
-
     const category = this.categoryRepository.create({
       ...data,
       parentId,
-      icon: iconUrl || null,
     });
 
     const savedCategory = await this.categoryRepository.save(category);
@@ -135,7 +124,6 @@ export class CategoriesService {
   async update(
     id: string,
     updateCategoryDto: UpdateCategoryDto,
-    icon?: Express.Multer.File,
   ) {
     // Usar el método findOne para obtener la categoría (con cache)
     const category = await this.categoryRepository.findOne({
@@ -173,11 +161,6 @@ export class CategoriesService {
       }
 
       category.parentId = parentId;
-    }
-
-    if (icon) {
-      const upload = await this.cloudinaryService.uploadImage(icon, 'categories');
-      category.icon = upload.secure_url;
     }
 
     // Actualizar solo las propiedades que existen en data

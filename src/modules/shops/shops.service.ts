@@ -17,7 +17,6 @@ import { FilterShopsDto } from './dtos/filter-shops.dto';
 import { ShopResponseDto } from './dtos/shop-response.dto';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Product } from '../products/entities/product.entity';
-import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
@@ -27,7 +26,6 @@ export class ShopsService {
     private shopRepository: Repository<Shop>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    private cloudinaryService: CloudinaryService,
     private redisService: RedisService,
   ) {}
 
@@ -37,10 +35,6 @@ export class ShopsService {
   async create(
     createShopDto: CreateShopDto,
     owner: User,
-    files?: {
-      logo?: Express.Multer.File[];
-      banner?: Express.Multer.File[];
-    },
   ) {
     // Validación horarios
     if (createShopDto.schedule) {
@@ -60,32 +54,10 @@ export class ShopsService {
     const longitude = createShopDto.longitude;
     const formattedAddress = `${createShopDto.address}, ${createShopDto.city}, ${createShopDto.province}`;
 
-    // Logo
-    let logoUrl: string | undefined = undefined;
-    if (files?.logo?.[0]) {
-      const upload = await this.cloudinaryService.uploadImage(
-        files.logo[0],
-        'petshops/logos',
-      );
-      logoUrl = upload.secure_url;
-    }
-
-    // Banner
-    let bannerUrl: string | undefined = undefined;
-    if (files?.banner?.[0]) {
-      const upload = await this.cloudinaryService.uploadImage(
-        files.banner[0],
-        'petshops/banners',
-      );
-      bannerUrl = upload.secure_url;
-    }
-
     const shop = this.shopRepository.create({
       ...createShopDto,
       latitude,
       longitude,
-      logo: logoUrl,
-      banner: bannerUrl,
       owner: { id: owner.id },
       status: ShopStatus.ACTIVE,
     });
@@ -119,10 +91,6 @@ export class ShopsService {
     id: string,
     updateShopDto: UpdateShopDto,
     user: User,
-    files?: {
-      logo?: Express.Multer.File[];
-      banner?: Express.Multer.File[];
-    },
   ) {
     const shop = await this.shopRepository.findOne({
       where: { id },
@@ -136,24 +104,6 @@ export class ShopsService {
     // Validación horarios
     if (updateShopDto.schedule) {
       this.validateSchedule(updateShopDto.schedule);
-    }
-
-    // Logo
-    if (files?.logo?.[0]) {
-      const upload = await this.cloudinaryService.uploadImage(
-        files.logo[0],
-        `petshops/logos/${id}`,
-      );
-      updateShopDto.logo = upload.secure_url;
-    }
-
-    // Banner
-    if (files?.banner?.[0]) {
-      const upload = await this.cloudinaryService.uploadImage(
-        files.banner[0],
-        `petshops/banners/${id}`,
-      );
-      updateShopDto.banner = upload.secure_url;
     }
 
     // Dirección final

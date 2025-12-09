@@ -11,7 +11,6 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { CloudinaryModule } from './common/services/cloudinary.module';
 import redisConfig from './config/redis.config';
 import { RedisModule } from './common/redis/redis.module';
 
@@ -36,7 +35,6 @@ import { RedisModule } from './common/redis/redis.module';
     }),
 
     RedisModule,
-    CloudinaryModule,
     AuthModule,
     UsersModule,
     ShopsModule,

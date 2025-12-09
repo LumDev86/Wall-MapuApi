@@ -15,7 +15,6 @@ import { ProductResponseDto } from './dtos/product-response.dto';
 import { User } from '../users/entities/user.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { Category } from '../categories/entities/category.entity';
-import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RedisService } from '../../common/redis/redis.service';
 
 @Injectable()
@@ -27,7 +26,6 @@ export class ProductsService {
     private shopRepository: Repository<Shop>,
     @InjectRepository(Category)
     private categoryRepository: Repository<Category>,
-    private cloudinaryService: CloudinaryService,
     private redisService: RedisService,
   ) {}
 
@@ -35,7 +33,6 @@ export class ProductsService {
     createProductDto: CreateProductDto,
     shopId: string,
     user: User,
-    images?: Express.Multer.File[],
   ) {
     const shop = await this.shopRepository.findOne({
       where: { id: shopId },
@@ -58,29 +55,9 @@ export class ProductsService {
       throw new NotFoundException('Categoría no encontrada');
     }
 
-    let imageUrls: string[] = [];
-
-    // Subir imágenes desde archivos (Multer)
-    if (images && images.length > 0) {
-      const uploadResults = await this.cloudinaryService.uploadMultipleImages(
-        images,
-        `petshops/products/${shopId}`,
-      );
-      imageUrls = uploadResults.map((result) => result.secure_url);
-    }
-    // Subir imágenes desde base64 (React Native)
-    else if (createProductDto.imagesBase64 && createProductDto.imagesBase64.length > 0) {
-      const uploadResults = await this.cloudinaryService.uploadMultipleBase64Images(
-        createProductDto.imagesBase64,
-        `petshops/products/${shopId}`,
-      );
-      imageUrls = uploadResults.map((result) => result.secure_url);
-    }
-
     const product = this.productRepository.create({
       ...createProductDto,
       shopId,
-      images: imageUrls,
     });
 
     const savedProduct = await this.productRepository.save(product);
@@ -401,7 +378,6 @@ export class ProductsService {
     id: string,
     updateProductDto: UpdateProductDto,
     user: User,
-    images?: Express.Multer.File[],
   ) {
     const product = await this.productRepository.findOne({
       where: { id },
@@ -414,21 +390,6 @@ export class ProductsService {
 
     if (product.shop.owner.id !== user.id) {
       throw new ForbiddenException('No tienes permiso para editar este producto');
-    }
-
-    if (images && images.length > 0) {
-      if (product.images && product.images.length > 0) {
-        const publicIds = product.images.map((url) =>
-          this.cloudinaryService.extractPublicId(url),
-        );
-        await this.cloudinaryService.deleteMultipleImages(publicIds);
-      }
-
-      const uploadResults = await this.cloudinaryService.uploadMultipleImages(
-        images,
-        `petshops/products/${product.shopId}`,
-      );
-      product.images = uploadResults.map((result) => result.secure_url);
     }
 
     if (updateProductDto.categoryId) {
@@ -477,13 +438,6 @@ export class ProductsService {
 
     if (product.shop.owner.id !== user.id) {
       throw new ForbiddenException('No tienes permiso para eliminar este producto');
-    }
-
-    if (product.images && product.images.length > 0) {
-      const publicIds = product.images.map((url) =>
-        this.cloudinaryService.extractPublicId(url),
-      );
-      await this.cloudinaryService.deleteMultipleImages(publicIds);
     }
 
     product.isActive = false;
