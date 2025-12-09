@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   UseGuards,
   HttpStatus,
@@ -164,5 +165,38 @@ export class SubscriptionsController {
   @ApiOperation({ summary: 'Obtener mi suscripción actual' })
   async getMySubscription(@CurrentUser() user: User) {
     return this.service.findMySubscription(user.id);
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 CANCELAR MI SUSCRIPCIÓN
+  // -------------------------------------------------------------
+  @Delete('me')
+  @Roles(UserRole.RETAILER, UserRole.WHOLESALER)
+  @ApiOperation({
+    summary: 'Cancelar mi suscripción actual',
+    description: 'Cancela la suscripción activa del usuario y desactiva sus shops'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Suscripción cancelada exitosamente',
+    schema: {
+      example: {
+        message: 'Suscripción cancelada exitosamente',
+        subscription: {
+          id: 'uuid-123',
+          plan: 'retailer',
+          status: 'cancelled',
+          amount: 18000,
+          autoRenew: false
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'No hay suscripción activa para cancelar'
+  })
+  async cancelMySubscription(@CurrentUser() user: User) {
+    return this.service.cancelMySubscription(user.id);
   }
 }

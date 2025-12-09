@@ -211,4 +211,38 @@ export class SubscriptionsService {
       },
     };
   }
+
+  // -------------------------------------------------------------
+  // 🔵 CANCELAR MI SUSCRIPCIÓN
+  // -------------------------------------------------------------
+  async cancelMySubscription(userId: string) {
+    const subscription = await this.subsRepo.findOne({
+      where: {
+        userId,
+        status: In([SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING]),
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('No tienes una suscripción activa o pendiente para cancelar');
+    }
+
+    // Cambiar estado a cancelado
+    subscription.status = SubscriptionStatus.CANCELLED;
+    subscription.autoRenew = false;
+    await this.subsRepo.save(subscription);
+
+    // Desactivar los shops del usuario
+    const shops = await this.shopRepo.find({ where: { owner: { id: userId } } });
+    for (const shop of shops) {
+      shop.status = ShopStatus.SUSPENDED;
+      await this.shopRepo.save(shop);
+    }
+
+    return {
+      message: 'Suscripción cancelada exitosamente',
+      subscription,
+    };
+  }
 }
