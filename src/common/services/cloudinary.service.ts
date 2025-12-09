@@ -70,11 +70,24 @@ export class CloudinaryService {
   ): Promise<UploadApiResponse> {
     try {
       console.log('🔄 Subiendo imagen base64 a Cloudinary...');
-      console.log('📏 Tamaño de string base64:', base64String.length);
+      console.log('📏 Tamaño de string base64 original:', base64String.length);
       console.log('📂 Folder:', folder);
-      console.log('🔍 Primeros 50 caracteres:', base64String.substring(0, 50));
+      console.log('🔍 Primeros 100 caracteres:', base64String.substring(0, 100));
 
-      const result = await cloudinary.uploader.upload(base64String, {
+      // Limpiar el string base64: remover espacios, saltos de línea, y quotes
+      let cleanedBase64 = base64String
+        .replace(/\s/g, '') // Remover todos los espacios en blanco
+        .replace(/['"]/g, ''); // Remover comillas simples y dobles
+
+      console.log('🧹 Tamaño después de limpiar:', cleanedBase64.length);
+      console.log('🔍 Primeros 100 caracteres limpiados:', cleanedBase64.substring(0, 100));
+
+      // Validar formato data URI
+      if (!cleanedBase64.startsWith('data:image/')) {
+        throw new BadRequestException('El string base64 debe comenzar con data:image/');
+      }
+
+      const result = await cloudinary.uploader.upload(cleanedBase64, {
         folder,
         resource_type: 'auto',
         transformation: [
