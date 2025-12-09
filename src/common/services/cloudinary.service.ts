@@ -63,4 +63,32 @@ export class CloudinaryService {
     const folder = parts[parts.length - 2];
     return `${folder}/${publicId}`;
   }
+
+  async uploadBase64Image(
+    base64String: string,
+    folder: string = 'petshops',
+  ): Promise<UploadApiResponse> {
+    try {
+      const result = await cloudinary.uploader.upload(base64String, {
+        folder,
+        resource_type: 'auto',
+        transformation: [
+          { width: 1000, height: 1000, crop: 'limit' },
+          { quality: 'auto:good' },
+          { fetch_format: 'auto' },
+        ],
+      });
+      return result;
+    } catch (error) {
+      throw new BadRequestException(`Error al subir imagen base64: ${error.message}`);
+    }
+  }
+
+  async uploadMultipleBase64Images(
+    base64Strings: string[],
+    folder: string = 'petshops',
+  ): Promise<UploadApiResponse[]> {
+    const uploadPromises = base64Strings.map((base64) => this.uploadBase64Image(base64, folder));
+    return Promise.all(uploadPromises);
+  }
 }

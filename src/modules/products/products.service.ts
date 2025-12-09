@@ -59,9 +59,19 @@ export class ProductsService {
     }
 
     let imageUrls: string[] = [];
+
+    // Subir imágenes desde archivos (Multer)
     if (images && images.length > 0) {
       const uploadResults = await this.cloudinaryService.uploadMultipleImages(
         images,
+        `petshops/products/${shopId}`,
+      );
+      imageUrls = uploadResults.map((result) => result.secure_url);
+    }
+    // Subir imágenes desde base64 (React Native)
+    else if (createProductDto.imagesBase64 && createProductDto.imagesBase64.length > 0) {
+      const uploadResults = await this.cloudinaryService.uploadMultipleBase64Images(
+        createProductDto.imagesBase64,
         `petshops/products/${shopId}`,
       );
       imageUrls = uploadResults.map((result) => result.secure_url);

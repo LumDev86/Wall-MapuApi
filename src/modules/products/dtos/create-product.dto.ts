@@ -124,4 +124,14 @@ export class CreateProductDto {
   @IsUUID('4', { message: 'categoryId debe ser un UUID válido' })
   @Transform(({ value }) => value?.trim())
   categoryId: string;
+  @ApiPropertyOptional({
+    example: ['data:image/jpeg;base64,/9j/4AAQSkZJRg...'],
+    description: 'Imágenes en formato base64 (máximo 5)',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray({ message: 'Las imágenes deben ser un array' })
+  @IsString({ each: true, message: 'Cada imagen debe ser un string en base64' })
+  @ArrayMaxSize(5, { message: 'Máximo 5 imágenes permitidas' })
+  imagesBase64?: string[];
 }
