@@ -12,10 +12,14 @@ interface PreferenceResponse {
 @Injectable()
 export class MercadoPagoService {
   private mp: MercadoPagoConfig;
+  private isTestMode: boolean;
 
   constructor(private config: ConfigService) {
+    const accessToken = this.config.get('MP_ACCESS_TOKEN')!;
+    this.isTestMode = accessToken.startsWith('TEST-');
+
     this.mp = new MercadoPagoConfig({
-      accessToken: this.config.get('MP_ACCESS_TOKEN')!,
+      accessToken,
     });
   }
 
@@ -54,9 +58,10 @@ export class MercadoPagoService {
     });
 
     // La respuesta de MercadoPago viene anidada
+    // En modo test usamos sandbox_init_point, en producción usamos init_point
     return {
       id: response.id,
-      init_point: response.sandbox_init_point,
+      init_point: this.isTestMode ? response.sandbox_init_point : response.init_point,
     };
   }
 
