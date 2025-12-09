@@ -53,7 +53,7 @@ export class MercadoPagoService {
           shopId: data.shopId,
           type: 'subscription',
         },
-        notification_url: `${this.config.get('BACKEND_URL')}/webhooks/mercadopago`,
+        notification_url: `${this.config.get('BACKEND_URL')}/api/webhooks/mercadopago`,
       },
     });
 
