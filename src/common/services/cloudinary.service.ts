@@ -69,6 +69,11 @@ export class CloudinaryService {
     folder: string = 'petshops',
   ): Promise<UploadApiResponse> {
     try {
+      console.log('🔄 Subiendo imagen base64 a Cloudinary...');
+      console.log('📏 Tamaño de string base64:', base64String.length);
+      console.log('📂 Folder:', folder);
+      console.log('🔍 Primeros 50 caracteres:', base64String.substring(0, 50));
+
       const result = await cloudinary.uploader.upload(base64String, {
         folder,
         resource_type: 'auto',
@@ -78,9 +83,13 @@ export class CloudinaryService {
           { fetch_format: 'auto' },
         ],
       });
+
+      console.log('✅ Imagen subida exitosamente:', result.secure_url);
       return result;
     } catch (error) {
-      throw new BadRequestException(`Error al subir imagen base64: ${error.message}`);
+      console.error('❌ Error completo en Cloudinary:', error);
+      const errorMessage = error?.message || error?.error?.message || JSON.stringify(error);
+      throw new BadRequestException(`Error al subir imagen base64: ${errorMessage}`);
     }
   }
 
