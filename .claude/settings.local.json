@@ -20,7 +20,8 @@
       "Bash(cat:*)",
       "Bash(node fix-frontend-geolocation.js:*)",
       "Bash(node fix-api-coordinates.js:*)",
-      "Bash(node add-coordinates-validation.js:*)"
+      "Bash(node add-coordinates-validation.js:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": [],
     "ask": []
