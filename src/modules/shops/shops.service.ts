@@ -360,10 +360,19 @@ export class ShopsService {
     if (shop.owner.id !== user.id)
       throw new ForbiddenException('No tienes permiso para editar este local');
 
-    // Verificar que la tienda tenga plan wholesaler
-    if (shop.type !== 'wholesaler') {
+    // Verificar que la tienda tenga una suscripción activa
+    const activeSubscription = await this.shopRepository
+      .createQueryBuilder('shop')
+      .leftJoinAndSelect('shop.owner', 'owner')
+      .leftJoin('owner.subscriptions', 'subscription')
+      .where('shop.id = :shopId', { shopId: id })
+      .andWhere('subscription.shopId = :shopId', { shopId: id })
+      .andWhere('subscription.status = :status', { status: 'active' })
+      .getOne();
+
+    if (!activeSubscription) {
       throw new ForbiddenException(
-        'Solo las tiendas con plan wholesaler pueden tener banners promocionales',
+        'Necesitas una suscripción activa para tener banners promocionales',
       );
     }
 
