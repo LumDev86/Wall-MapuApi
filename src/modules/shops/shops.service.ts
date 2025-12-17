@@ -342,4 +342,45 @@ export class ShopsService {
     }
     return shop;
   }
+
+  // ============================================
+  // UPDATE PROMOTIONAL BANNER
+  // ============================================
+  async updatePromotionalBanner(
+    id: string,
+    updatePromotionalBannerDto: any,
+    user: User,
+  ) {
+    const shop = await this.shopRepository.findOne({
+      where: { id },
+      relations: ['owner'],
+    });
+
+    if (!shop) throw new NotFoundException('Local no encontrado');
+    if (shop.owner.id !== user.id)
+      throw new ForbiddenException('No tienes permiso para editar este local');
+
+    // Verificar que la tienda tenga plan wholesaler
+    if (shop.type !== 'wholesaler') {
+      throw new ForbiddenException(
+        'Solo las tiendas con plan wholesaler pueden tener banners promocionales',
+      );
+    }
+
+    // Actualizar banner promocional
+    shop.promotionalBanner = {
+      title: updatePromotionalBannerDto.title,
+      subtitle: updatePromotionalBannerDto.subtitle,
+      imageUrl: updatePromotionalBannerDto.imageUrl,
+      isActive: updatePromotionalBannerDto.isActive ?? true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.shopRepository.save(shop);
+
+    return {
+      message: 'Banner promocional actualizado exitosamente',
+      shop: this.sanitizeShop(shop),
+    };
+  }
 }

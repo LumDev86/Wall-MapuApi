@@ -91,6 +91,15 @@ export class Shop {
 
   @Column({ nullable: true })
   banner: string;
+n  // Banner promocional (solo para plan wholesaler - máximo 1 banner)
+  @Column({ type: 'jsonb', nullable: true })
+  promotionalBanner: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    isActive: boolean;
+    createdAt: string;
+  };
 
   @Column({ default: true })
   isActive: boolean;

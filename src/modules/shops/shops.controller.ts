@@ -20,6 +20,7 @@ import {
 import { ShopsService } from './shops.service';
 import { CreateShopDto } from './dtos/create-shop.dto';
 import { UpdateShopDto } from './dtos/update-shop.dto';
+import { UpdatePromotionalBannerDto } from './dtos/update-promotional-banner.dto';
 import { FilterShopsDto } from './dtos/filter-shops.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtAuthOptionalGuard } from '../../common/guards/jwt-auth-optional.guard';
@@ -160,5 +161,29 @@ export class ShopsController {
   })
   remove(@Param('id') id: string, @CurrentUser() user: User) {
     return this.shopsService.remove(id, user);
+  }
+
+  @Patch(':id/promotional-banner')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Actualizar banner promocional (solo plan wholesaler)',
+    description: 'Actualiza o crea el banner promocional de la tienda. Solo disponible para tiendas con plan wholesaler.',
+  })
+  @ApiBody({ type: UpdatePromotionalBannerDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Banner promocional actualizado exitosamente',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Solo tiendas con plan wholesaler pueden tener banners promocionales',
+  })
+  async updatePromotionalBanner(
+    @Param('id') id: string,
+    @Body() updatePromotionalBannerDto: UpdatePromotionalBannerDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.shopsService.updatePromotionalBanner(id, updatePromotionalBannerDto, user);
   }
 }
