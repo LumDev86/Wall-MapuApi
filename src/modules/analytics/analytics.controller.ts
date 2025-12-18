@@ -104,4 +104,26 @@ export class AnalyticsController {
   getUsersByProvince() {
     return this.analyticsService.getUsersByProvince();
   }
+
+  @Get('shops/ranking-by-clicks')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Ranking de tiendas por clicks',
+    description: 'Obtiene el ranking de minoristas y mayoristas ordenados por cantidad de clicks recibidos',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Número máximo de resultados (default: 10)',
+    example: 10,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Ranking obtenido exitosamente',
+  })
+  getShopsRankingByClicks(@Query('limit') limit?: string) {
+    const numLimit = limit ? parseInt(limit) : 10;
+    return this.analyticsService.getShopsRankingByClicks(numLimit);
+  }
 }

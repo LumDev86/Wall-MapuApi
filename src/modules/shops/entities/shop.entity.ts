@@ -91,7 +91,8 @@ export class Shop {
 
   @Column({ nullable: true })
   banner: string;
-n  // Banner promocional (solo para plan wholesaler - máximo 1 banner)
+
+  // Banner promocional (solo para plan wholesaler - máximo 1 banner)
   @Column({ type: 'jsonb', nullable: true })
   promotionalBanner: {
     title: string;
@@ -103,6 +104,10 @@ n  // Banner promocional (solo para plan wholesaler - máximo 1 banner)
 
   @Column({ default: true })
   isActive: boolean;
+
+  // Contador de clicks/visitas al perfil de la tienda
+  @Column({ type: 'int', default: 0 })
+  clickCount: number;
 
   // Relaciones
   @ManyToOne(() => User, (user) => user.shops)
