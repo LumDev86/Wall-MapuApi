@@ -12,6 +12,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import redisConfig from './config/redis.config';
 import { RedisModule } from './common/redis/redis.module';
 
@@ -44,6 +45,7 @@ import { RedisModule } from './common/redis/redis.module';
     SubscriptionsModule,
     AdminModule,
     CartModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

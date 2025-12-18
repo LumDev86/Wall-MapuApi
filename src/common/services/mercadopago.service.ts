@@ -29,8 +29,17 @@ export class MercadoPagoService {
     amount: number;
     user: User;
     shopId?: string;
+    type?: 'subscription' | 'order';
+    successUrl?: string;
+    failureUrl?: string;
+    notificationUrl?: string;
   }): Promise<PreferenceResponse> {
     const preference = new Preference(this.mp);
+
+    const type = data.type || 'subscription';
+    const successUrl = data.successUrl || `${this.config.get('FRONTEND_URL')}/subscription/success`;
+    const failureUrl = data.failureUrl || `${this.config.get('FRONTEND_URL')}/subscription/failure`;
+    const notificationUrl = data.notificationUrl || `${this.config.get('BACKEND_URL')}/api/webhooks/mercadopago`;
 
     const response = await preference.create({
       body: {
@@ -43,17 +52,17 @@ export class MercadoPagoService {
           },
         ],
         back_urls: {
-          success: `${this.config.get('FRONTEND_URL')}/subscription/success`,
-          failure: `${this.config.get('FRONTEND_URL')}/subscription/failure`,
+          success: successUrl,
+          failure: failureUrl,
         },
         external_reference: data.id,
         metadata: {
-          subscriptionId: data.id,
+          referenceId: data.id,
           userId: data.user.id,
           shopId: data.shopId,
-          type: 'subscription',
+          type: type,
         },
-        notification_url: `${this.config.get('BACKEND_URL')}/api/webhooks/mercadopago`,
+        notification_url: notificationUrl,
       },
     });
 
