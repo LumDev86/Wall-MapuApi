@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import databaseConfig from './config/database.config';
@@ -13,6 +14,9 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CartModule } from './modules/cart/cart.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { TicketsModule } from './modules/tickets/tickets.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import redisConfig from './config/redis.config';
 import { RedisModule } from './common/redis/redis.module';
 
@@ -36,6 +40,7 @@ import { RedisModule } from './common/redis/redis.module';
       inject: [ConfigService],
     }),
 
+    ScheduleModule.forRoot(),
     RedisModule,
     AuthModule,
     UsersModule,
@@ -46,6 +51,9 @@ import { RedisModule } from './common/redis/redis.module';
     AdminModule,
     CartModule,
     OrdersModule,
+    AnalyticsModule,
+    TicketsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

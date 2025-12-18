@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { Pet } from './entities/pet.entity';
 import { UpdateProfileDto } from './dtos/update-profile.dto';
+import { FilterUsersCrmDto } from './dtos/filter-users-crm.dto';
 
 @Injectable()
 export class UsersService {
@@ -103,5 +104,71 @@ export class UsersService {
     const updatedUser = await this.getProfile(userId);
 
     return updatedUser;
+  }
+
+  /**
+   * Obtener usuarios con filtros para CRM
+   */
+  async getUsersForCrm(filters: FilterUsersCrmDto) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const query = this.userRepository.createQueryBuilder('user');
+
+    // Filtro de búsqueda
+    if (filters.search) {
+      query.andWhere(
+        '(LOWER(user.name) LIKE LOWER(:search) OR LOWER(user.email) LIKE LOWER(:search) OR user.phone LIKE :search)',
+        { search: `%${filters.search}%` },
+      );
+    }
+
+    // Filtro por rol
+    if (filters.role) {
+      query.andWhere('user.role = :role', { role: filters.role });
+    }
+
+    // Filtro por provincia
+    if (filters.province) {
+      query.andWhere('user.province = :province', { province: filters.province });
+    }
+
+    // Filtro por estado
+    if (filters.status && filters.status !== 'all') {
+      const isActive = filters.status === 'active';
+      query.andWhere('user.isActive = :isActive', { isActive });
+    }
+
+    // Contar total
+    const total = await query.getCount();
+
+    // Aplicar paginación y ordenar
+    query
+      .skip(skip)
+      .take(limit)
+      .orderBy('user.createdAt', 'DESC');
+
+    const users = await query.getMany();
+
+    // Remover campos sensibles
+    const safeUsers = users.map(user => {
+      const { password, passwordResetToken, emailVerificationToken, ...safeUser } = user;
+      return safeUser;
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: safeUsers,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 }

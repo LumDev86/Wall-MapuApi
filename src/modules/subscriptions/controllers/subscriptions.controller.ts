@@ -66,6 +66,41 @@ export class SubscriptionsController {
   }
 
   // -------------------------------------------------------------
+  // 🔵 ESTADÍSTICAS DE SUSCRIPCIONES (ADMIN)
+  // -------------------------------------------------------------
+  @Get('stats')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Obtener estadísticas de suscripciones (solo admin)' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Estadísticas de suscripciones',
+    schema: {
+      example: {
+        total: 150,
+        byStatus: {
+          active: 85,
+          pending: 10,
+          cancelled: 45,
+          expired: 10
+        },
+        byPlan: {
+          retailer: 50,
+          wholesaler: 35
+        },
+        revenue: {
+          monthlyProjected: 1600000,
+          currency: 'ARS'
+        },
+        renewalRate: '75.50%',
+        activeWithAutoRenew: 64
+      }
+    }
+  })
+  async getStats() {
+    return this.service.getSubscriptionStats();
+  }
+
+  // -------------------------------------------------------------
   // 🔵 LISTAR TODAS LAS SUSCRIPCIONES (ADMIN)
   // -------------------------------------------------------------
   @Get()

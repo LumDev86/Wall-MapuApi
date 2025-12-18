@@ -6,6 +6,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,9 +16,12 @@ import {
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dtos/update-profile.dto';
+import { FilterUsersCrmDto } from './dtos/filter-users-crm.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
 
 @ApiTags('Users')
 @Controller('users')
@@ -90,5 +94,28 @@ export class UsersController {
       message: 'Perfil actualizado correctamente',
       user: updatedUser,
     };
+  }
+
+  // -------------------------
+  // GET USERS FOR CRM
+  // -------------------------
+  @Get('crm/list')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Listar usuarios con filtros para CRM (Solo Admin)',
+    description: 'Obtiene lista de usuarios con filtros avanzados, paginación y búsqueda. Endpoint para el panel de administración CRM.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de usuarios obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'No autorizado. Solo administradores pueden acceder.',
+  })
+  getUsersForCrm(@Query() filters: FilterUsersCrmDto) {
+    return this.usersService.getUsersForCrm(filters);
   }
 }

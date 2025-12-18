@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
 
-import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
+import { Subscription, SubscriptionStatus, SubscriptionPlan } from '../entities/subscription.entity';
 import { Shop } from '../../shops/entities/shop.entity';
 import { ShopStatus } from '../../shops/entities/shop.entity';
 
@@ -142,40 +142,54 @@ export class SubscriptionsService {
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
 
-    const whereConditions: Record<string, any> = {};
+    const query = this.subsRepo
+      .createQueryBuilder('subscription')
+      .leftJoinAndSelect('subscription.user', 'user');
+
+    // Filtro de búsqueda por nombre o email
+    if (filters.search) {
+      query.andWhere(
+        '(LOWER(user.name) LIKE LOWER(:search) OR LOWER(user.email) LIKE LOWER(:search))',
+        { search: `%${filters.search}%` },
+      );
+    }
 
     // Aplicar filtros
     if (filters.status) {
-      whereConditions.status = filters.status;
+      query.andWhere('subscription.status = :status', { status: filters.status });
     }
 
     if (filters.plan) {
-      whereConditions.plan = filters.plan;
+      query.andWhere('subscription.plan = :plan', { plan: filters.plan });
     }
 
     if (filters.userId) {
-      whereConditions.userId = filters.userId;
+      query.andWhere('subscription.userId = :userId', { userId: filters.userId });
     }
 
     // Filtro por rango de fechas
     if (filters.startDate && filters.endDate) {
-      whereConditions.createdAt = Between(
-        new Date(filters.startDate),
-        new Date(filters.endDate)
-      );
+      query.andWhere('subscription.createdAt BETWEEN :startDate AND :endDate', {
+        startDate: new Date(filters.startDate),
+        endDate: new Date(filters.endDate),
+      });
     } else if (filters.startDate) {
-      whereConditions.createdAt = MoreThanOrEqual(new Date(filters.startDate));
+      query.andWhere('subscription.createdAt >= :startDate', {
+        startDate: new Date(filters.startDate),
+      });
     } else if (filters.endDate) {
-      whereConditions.createdAt = LessThanOrEqual(new Date(filters.endDate));
+      query.andWhere('subscription.createdAt <= :endDate', {
+        endDate: new Date(filters.endDate),
+      });
     }
 
-    const [data, total] = await this.subsRepo.findAndCount({
-      where: whereConditions,
-      relations: ['user'],
-      order: { createdAt: 'DESC' },
-      take: limit,
-      skip,
-    });
+    // Contar total
+    const total = await query.getCount();
+
+    // Aplicar paginación y ordenar
+    query.skip(skip).take(limit).orderBy('subscription.createdAt', 'DESC');
+
+    const data = await query.getMany();
 
     return {
       data,
@@ -243,6 +257,54 @@ export class SubscriptionsService {
     return {
       message: 'Suscripción cancelada exitosamente',
       subscription,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // 🔵 ESTADÍSTICAS DE SUSCRIPCIONES (ADMIN)
+  // -------------------------------------------------------------
+  async getSubscriptionStats() {
+    const total = await this.subsRepo.count();
+    const active = await this.subsRepo.count({ where: { status: SubscriptionStatus.ACTIVE } });
+    const pending = await this.subsRepo.count({ where: { status: SubscriptionStatus.PENDING } });
+    const cancelled = await this.subsRepo.count({ where: { status: SubscriptionStatus.CANCELLED } });
+    const expired = await this.subsRepo.count({ where: { status: SubscriptionStatus.EXPIRED } });
+
+    // Contar por plan (solo activas)
+    const retailerActive = await this.subsRepo.count({
+      where: { plan: SubscriptionPlan.RETAILER, status: SubscriptionStatus.ACTIVE },
+    });
+    const wholesalerActive = await this.subsRepo.count({
+      where: { plan: SubscriptionPlan.WHOLESALER, status: SubscriptionStatus.ACTIVE },
+    });
+
+    // Calcular ingresos mensuales proyectados (solo suscripciones activas)
+    const monthlyRevenue = retailerActive * this.PLAN_PRICES.retailer + wholesalerActive * this.PLAN_PRICES.wholesaler;
+
+    // Calcular tasa de renovación (subscripciones con autoRenew activo)
+    const withAutoRenew = await this.subsRepo.count({
+      where: { status: SubscriptionStatus.ACTIVE, autoRenew: true },
+    });
+    const renewalRate = active > 0 ? ((withAutoRenew / active) * 100).toFixed(2) : '0';
+
+    return {
+      total,
+      byStatus: {
+        active,
+        pending,
+        cancelled,
+        expired,
+      },
+      byPlan: {
+        retailer: retailerActive,
+        wholesaler: wholesalerActive,
+      },
+      revenue: {
+        monthlyProjected: monthlyRevenue,
+        currency: 'ARS',
+      },
+      renewalRate: `${renewalRate}%`,
+      activeWithAutoRenew: withAutoRenew,
     };
   }
 }

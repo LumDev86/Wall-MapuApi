@@ -61,6 +61,14 @@ export class FilterSubscriptionsDto {
   userId?: string;
 
   @ApiPropertyOptional({
+    example: 'juan perez',
+    description: 'Buscar por nombre o email de usuario',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
     example: '2024-01-01',
     description: 'Fecha de inicio del rango de búsqueda (ISO 8601)',
   })
