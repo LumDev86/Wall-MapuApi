@@ -21,7 +21,11 @@
       "Bash(node fix-frontend-geolocation.js:*)",
       "Bash(node fix-api-coordinates.js:*)",
       "Bash(node add-coordinates-validation.js:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
     ],
     "deny": [],
     "ask": []
