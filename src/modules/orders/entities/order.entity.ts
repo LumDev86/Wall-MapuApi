@@ -40,13 +40,13 @@ export class Order {
   })
   status: OrderStatus;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   paymentId: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   preferenceId: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   paymentUrl: string | null;
 
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, {
