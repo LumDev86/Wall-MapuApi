@@ -186,4 +186,29 @@ export class ShopsController {
   ) {
     return this.shopsService.updatePromotionalBanner(id, updatePromotionalBannerDto, user);
   }
+
+  @Post(':id/increment-click')
+  @ApiOperation({
+    summary: 'Incrementar contador de clicks de un local',
+    description: 'Registra un click cuando un usuario visita el perfil de un local. Este endpoint es público y no requiere autenticación.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Click registrado exitosamente',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Click registrado exitosamente' },
+        clickCount: { type: 'number', example: 42 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Local no encontrado',
+  })
+  async incrementClick(@Param('id') id: string) {
+    return this.shopsService.incrementClickCount(id);
+  }
+
 }

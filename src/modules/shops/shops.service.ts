@@ -392,4 +392,30 @@ export class ShopsService {
       shop: this.sanitizeShop(shop),
     };
   }
+
+  // ============================================
+  // INCREMENT CLICK COUNT
+  // ============================================
+  async incrementClickCount(id: string) {
+    const shop = await this.shopRepository.findOne({
+      where: { id, isActive: true },
+    });
+
+    if (!shop) {
+      throw new NotFoundException('Local no encontrado');
+    }
+
+    // Incrementar el contador de clicks
+    shop.clickCount = (shop.clickCount || 0) + 1;
+    await this.shopRepository.save(shop);
+
+    // Invalidar caché si es necesario
+    await this.redisService.del(`shop:${id}`);
+
+    return {
+      message: 'Click registrado exitosamente',
+      clickCount: shop.clickCount,
+    };
+  }
+
 }
