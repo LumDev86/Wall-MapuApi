@@ -10,6 +10,7 @@ import { MercadoPagoService } from '../../../common/services/mercadopago.service
 import { CreateSubscriptionDto } from '../dtos/create-subscription.dto';
 import { FilterSubscriptionsDto } from '../dtos/filter-subscriptions.dto';
 import { User } from '../../users/entities/user.entity';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class SubscriptionsService {

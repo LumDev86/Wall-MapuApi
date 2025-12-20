@@ -1,97 +1,70 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
-import { verifyEmailTemplate } from './templates/verify-email.template';
-import { resetPasswordTemplate } from './templates/reset-password.template';
+
+export interface SendEmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+}
 
 @Injectable()
-export class MailService {
-  private readonly logger = new Logger(MailService.name);
+export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private resend: Resend;
-  private from: string;
+  private fromEmail: string;
 
   constructor(private configService: ConfigService) {
-    this.resend = new Resend(process.env.RESEND_API_KEY as string);
-    this.from = this.configService.get<string>('mail.from') ?? 'Wall-Mapu <noreply@wallmapu.app>';
-    this.logger.log('✅ Mail service initialized with Resend');
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+
+    if (!apiKey) {
+      this.logger.warn('⚠️  RESEND_API_KEY no está configurada. Los emails no se enviarán.');
+      return;
+    }
+
+    this.resend = new Resend(apiKey);
+    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'Wall-Mapu <noreply@wallmapu.app>');
+
+    this.logger.log('✅ Email service initialized with Resend');
   }
 
-  async sendMail(to: string, subject: string, html: string) {
-    try {
-      this.logger.log(`📧 Sending email to ${to}: ${subject}`);
+  /**
+   * Enviar email usando Resend API
+   */
+  async sendEmail(options: SendEmailOptions): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn('Email service not configured, skipping email send');
+      return false;
+    }
 
-      const response = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
+    try {
+      this.logger.log(`📧 Sending email to ${options.to}: ${options.subject}`);
+
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromEmail,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
       });
 
-      if (response.error) {
-        this.logger.error(`❌ Resend error: ${response.error.message}`);
-        throw new InternalServerErrorException('Error al enviar correo');
+      if (error) {
+        this.logger.error(`❌ Error sending email: ${error.message}`);
+        return false;
       }
 
-      this.logger.log(`✅ Email sent successfully. ID: ${response.data.id}`);
-      return response;
+      this.logger.log(`✅ Email sent successfully. ID: ${data.id}`);
+      return true;
     } catch (error) {
       this.logger.error(`❌ Exception sending email: ${error.message}`);
-      throw new InternalServerErrorException('Error al enviar correo');
+      return false;
     }
   }
 
-  async sendVerifyEmail(data: { to: string; name: string; verificationUrl: string }) {
-    const html = verifyEmailTemplate({
-      name: data.name,
-      verificationUrl: data.verificationUrl,
-    });
-    await this.sendMail(data.to, 'Verificá tu correo', html);
-  }
-
-  async sendResetPasswordEmail(data: { to: string; resetUrl: string }) {
-    const html = resetPasswordTemplate({
-      resetUrl: data.resetUrl,
-    });
-    await this.sendMail(data.to, 'Restablecé tu contraseña', html);
-  }
-
-  async sendWelcomeEmail(data: { to: string; name: string }) {
-    const html = this.welcomeEmailTemplate(data.name);
-    await this.sendMail(data.to, '🐾 ¡Bienvenido a Wall-Mapu!', html);
-  }
-
-  async sendSubscriptionPaymentEmail(data: {
-    to: string;
-    name: string;
-    plan: string;
-    amount: number;
-  }) {
-    const html = this.subscriptionPaymentTemplate(data.name, data.plan, data.amount);
-    await this.sendMail(data.to, '✅ Pago de Suscripción Confirmado - Wall-Mapu', html);
-  }
-
-  async sendOrderConfirmationEmail(data: {
-    to: string;
-    name: string;
-    orderId: string;
-    totalAmount: number;
-    itemsCount: number;
-  }) {
-    const html = this.orderConfirmationTemplate(
-      data.name,
-      data.orderId,
-      data.totalAmount,
-      data.itemsCount,
-    );
-    await this.sendMail(
-      data.to,
-      `🛒 Pedido Confirmado #${data.orderId.substring(0, 8).toUpperCase()} - Wall-Mapu`,
-      html,
-    );
-  }
-
-  private welcomeEmailTemplate(name: string): string {
-    return `
+  /**
+   * Email de bienvenida para nuevo usuario
+   */
+  async sendWelcomeEmail(email: string, name: string): Promise<boolean> {
+    const html = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -101,6 +74,7 @@ export class MailService {
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
           .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
           .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
           .footer { text-align: center; margin-top: 30px; color: #888; font-size: 12px; }
         </style>
       </head>
@@ -119,6 +93,7 @@ export class MailService {
               <li>💼 Si tienes una tienda, promocionarla en nuestra plataforma</li>
             </ul>
             <p>¡Comienza a explorar ahora!</p>
+            <a href="https://wallmapu.app" class="button">Explorar Wall-Mapu</a>
           </div>
           <div class="footer">
             <p>Wall-Mapu - Tu plataforma de confianza para mascotas 🐾</p>
@@ -128,11 +103,84 @@ export class MailService {
       </body>
       </html>
     `;
+
+    return this.sendEmail({
+      to: email,
+      subject: '🐾 ¡Bienvenido a Wall-Mapu!',
+      html,
+    });
   }
 
-  private subscriptionPaymentTemplate(name: string, plan: string, amount: number): string {
+  /**
+   * Email de recuperación de contraseña
+   */
+  async sendPasswordResetEmail(email: string, name: string, resetToken: string): Promise<boolean> {
+    const resetUrl = `https://wallmapu.app/reset-password?token=${resetToken}`;
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+          .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #888; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🔐 Recuperación de Contraseña</h1>
+          </div>
+          <div class="content">
+            <p>Hola <strong>${name}</strong>,</p>
+            <p>Recibimos una solicitud para restablecer tu contraseña de Wall-Mapu.</p>
+            <p>Haz clic en el botón de abajo para crear una nueva contraseña:</p>
+            <a href="${resetUrl}" class="button">Restablecer Contraseña</a>
+            <div class="warning">
+              <strong>⚠️ Importante:</strong>
+              <ul>
+                <li>Este enlace expirará en 1 hora</li>
+                <li>Si no solicitaste este cambio, ignora este email</li>
+                <li>Nunca compartas este enlace con nadie</li>
+              </ul>
+            </div>
+            <p>Si el botón no funciona, copia y pega este enlace en tu navegador:</p>
+            <p style="word-break: break-all; color: #667eea;">${resetUrl}</p>
+          </div>
+          <div class="footer">
+            <p>Wall-Mapu - Tu plataforma de confianza para mascotas 🐾</p>
+            <p>Si tienes problemas, contáctanos en soporte@wallmapu.app</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail({
+      to: email,
+      subject: '🔐 Recuperación de Contraseña - Wall-Mapu',
+      html,
+    });
+  }
+
+  /**
+   * Email de confirmación de pago de suscripción
+   */
+  async sendSubscriptionPaymentEmail(
+    email: string,
+    name: string,
+    plan: string,
+    amount: number,
+  ): Promise<boolean> {
     const planName = plan === 'retailer' ? 'Minorista' : 'Mayorista';
-    return `
+
+    const html = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -145,6 +193,7 @@ export class MailService {
           .success-box { background: #d1fae5; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; }
           .details { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
           .details-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+          .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
           .footer { text-align: center; margin-top: 30px; color: #888; font-size: 12px; }
         </style>
       </head>
@@ -159,6 +208,7 @@ export class MailService {
               <strong>✅ Tu pago ha sido procesado exitosamente</strong>
             </div>
             <p>Gracias por suscribirte al plan <strong>${planName}</strong> de Wall-Mapu.</p>
+
             <div class="details">
               <h3>📋 Detalles de la Suscripción</h3>
               <div class="details-row">
@@ -174,7 +224,10 @@ export class MailService {
                 <span style="color: #10b981;">Activo</span>
               </div>
             </div>
+
             <p>Tu tienda ahora está visible en el mapa de Wall-Mapu y los usuarios podrán encontrarte fácilmente.</p>
+
+            <a href="https://wallmapu.app/mi-tienda" class="button">Ver Mi Tienda</a>
           </div>
           <div class="footer">
             <p>Wall-Mapu - Tu plataforma de confianza para mascotas 🐾</p>
@@ -184,15 +237,25 @@ export class MailService {
       </body>
       </html>
     `;
+
+    return this.sendEmail({
+      to: email,
+      subject: '✅ Pago de Suscripción Confirmado - Wall-Mapu',
+      html,
+    });
   }
 
-  private orderConfirmationTemplate(
+  /**
+   * Email de confirmación de compra
+   */
+  async sendOrderConfirmationEmail(
+    email: string,
     name: string,
     orderId: string,
     totalAmount: number,
     itemsCount: number,
-  ): string {
-    return `
+  ): Promise<boolean> {
+    const html = `
       <!DOCTYPE html>
       <html>
       <head>
@@ -206,6 +269,7 @@ export class MailService {
           .details { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
           .details-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
           .total { font-size: 20px; font-weight: bold; color: #667eea; padding-top: 15px; }
+          .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
           .footer { text-align: center; margin-top: 30px; color: #888; font-size: 12px; }
         </style>
       </head>
@@ -220,6 +284,7 @@ export class MailService {
               <strong>✅ Tu pedido ha sido confirmado y está en proceso</strong>
             </div>
             <p>Gracias por tu compra en Wall-Mapu. Hemos recibido tu orden y la estamos procesando.</p>
+
             <div class="details">
               <h3>📋 Detalles del Pedido</h3>
               <div class="details-row">
@@ -235,7 +300,10 @@ export class MailService {
                 <span class="total">$${totalAmount.toLocaleString('es-AR')} ARS</span>
               </div>
             </div>
+
             <p>El vendedor se pondrá en contacto contigo pronto para coordinar la entrega.</p>
+
+            <a href="https://wallmapu.app/mis-pedidos" class="button">Ver Mis Pedidos</a>
           </div>
           <div class="footer">
             <p>Wall-Mapu - Tu plataforma de confianza para mascotas 🐾</p>
@@ -245,5 +313,11 @@ export class MailService {
       </body>
       </html>
     `;
+
+    return this.sendEmail({
+      to: email,
+      subject: `🛒 Pedido Confirmado #${orderId.substring(0, 8).toUpperCase()} - Wall-Mapu`,
+      html,
+    });
   }
 }

@@ -13,6 +13,7 @@ import { CartService } from '../cart/cart.service';
 import { MercadoPagoService } from '../../common/services/mercadopago.service';
 import { OrderResponseDto } from './dtos/order-response.dto';
 import { ConfigService } from '@nestjs/config';
+import { MailService } from '../../mail/mail.service';
 
 @Injectable()
 export class OrdersService {
@@ -23,9 +24,12 @@ export class OrdersService {
     private orderRepository: Repository<Order>,
     @InjectRepository(OrderItem)
     private orderItemRepository: Repository<OrderItem>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private cartService: CartService,
     private mercadoPagoService: MercadoPagoService,
     private configService: ConfigService,
+    private mailService: MailService,
   ) {}
 
   async createCheckout(user: User) {
@@ -172,6 +176,29 @@ export class OrdersService {
       if (paymentStatus === 'approved') {
         order.status = OrderStatus.PAID;
         this.logger.log(`✅ Orden ${orderId} marcada como PAID`);
+
+        // Enviar email de confirmación de compra
+        try {
+          const user = await this.userRepository.findOne({ where: { id: order.userId } });
+          const orderWithItems = await this.orderRepository.findOne({
+            where: { id: orderId },
+            relations: ['items'],
+          });
+
+          if (user && orderWithItems) {
+            await this.mailService.sendOrderConfirmationEmail({
+              to: user.email,
+              name: user.name,
+              orderId: order.id,
+              totalAmount: Number(order.totalAmount),
+              itemsCount: orderWithItems.items.length,
+            });
+            this.logger.log(`📧 Email de confirmación enviado a ${user.email}`);
+          }
+        } catch (emailError) {
+          this.logger.error('Error al enviar email de confirmación:', emailError);
+          // No lanzar error, la confirmación de pago debe completarse aunque falle el email
+        }
       } else if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
         order.status = OrderStatus.FAILED;
         this.logger.log(`❌ Orden ${orderId} marcada como FAILED`);

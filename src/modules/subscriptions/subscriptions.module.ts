@@ -7,11 +7,13 @@ import { SubscriptionsService } from './services/subscriptions.service';
 import { SubscriptionsController } from './controllers/subscriptions.controller';
 import { WebhooksController } from './controllers/webhooks.controller';
 import { MercadoPagoService } from '../../common/services/mercadopago.service';
+import { MailModule } from 'src/mail/mail.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Subscription, Shop]),
     ConfigModule,
+    MailModule,
   ],
   controllers: [SubscriptionsController, WebhooksController],
   providers: [SubscriptionsService, MercadoPagoService],

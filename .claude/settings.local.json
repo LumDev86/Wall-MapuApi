@@ -34,7 +34,10 @@
       "Bash(node update-analytics.js:*)",
       "Bash(node -p \"const fs = require\\(''fs''\\); const content = fs.readFileSync\\(''src/services/api.ts'', ''utf-8''\\); const lines = content.split\\(''\\\\n''\\); const interfaceIndex = lines.findIndex\\(l => l.includes\\(''// Helper para obtener el token''\\)\\); if \\(interfaceIndex > 0\\) { lines.splice\\(interfaceIndex, 0, ''export interface ShopRanking {'', ''  id: string;'', ''  name: string;'', ''  type: \\\\''retailer\\\\'' | \\\\''wholesaler\\\\'';'', ''  clickCount: number;'', ''  province?: string;'', ''  city?: string;'', ''  owner: {'', ''    id: string;'', ''    name: string;'', ''    email: string;'', ''  };'', ''}'', ''''\\); } fs.writeFileSync\\(''src/services/api.ts'', lines.join\\(''\\\\n''\\)\\); ''Interface added successfully''\")",
       "Bash(node:*)",
-      "Bash(python -m json.tool:*)"
+      "Bash(python -m json.tool:*)",
+      "Bash(python:*)",
+      "Bash(npx tsc:*)",
+      "Bash(timeout 10 npx expo start:*)"
     ],
     "deny": [],
     "ask": []
