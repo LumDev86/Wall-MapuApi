@@ -15,11 +15,9 @@ import { LoginDto } from './dtos/login.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { UpdateLocationDto } from './dtos/update-location.dto';
-import { GoogleLoginDto } from './dtos/google-login.dto';
 import { randomBytes } from 'crypto';
 import { MailService } from 'src/mail/mail.service';
 import { GeocodingService } from '../../common/services/geocoding.service';
-import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
@@ -129,66 +127,6 @@ export class AuthService {
       user: this.sanitizeUser(user),
       token,
     };
-  }
-
-  async loginWithGoogle(googleLoginDto: GoogleLoginDto) {
-    const { idToken } = googleLoginDto;
-
-    try {
-      // Verificar el token con Google
-      const ticket = await this.googleClient.verifyIdToken({
-        idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
-      });
-
-      const payload = ticket.getPayload();
-      if (!payload) {
-        throw new UnauthorizedException('Token de Google inválido');
-      }
-
-      const { email, name } = payload;
-
-      // Buscar si el usuario ya existe
-      let user = await this.userRepository.findOne({
-        where: { email },
-      });
-
-      if (user) {
-        // Usuario existente - verificar que esté activo
-        if (!user.isActive) {
-          throw new UnauthorizedException('Usuario inactivo');
-        }
-      } else {
-        // Crear nuevo usuario
-        // Para usuarios de Google, generamos una contraseña aleatoria que nunca usarán
-        const randomPassword = randomBytes(32).toString('hex');
-        const hashedPassword = await bcrypt.hash(randomPassword, 10);
-
-        user = this.userRepository.create({
-          email,
-          password: hashedPassword,
-          name: name || email.split('@')[0],
-          role: UserRole.CLIENT,
-          isEmailVerified: true, // Google ya verificó el email
-        });
-
-        await this.userRepository.save(user);
-      }
-
-      const token = this.generateToken(user);
-
-      return {
-        message: 'Login con Google exitoso',
-        user: this.sanitizeUser(user),
-        token,
-      };
-    } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error;
-      }
-      console.error('Error en Google login:', error);
-      throw new UnauthorizedException('Error al validar token de Google');
-    }
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {

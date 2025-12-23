@@ -20,6 +20,7 @@ import { LoginDto } from './dtos/login.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
 import { ResetPasswordDto } from './dtos/reset-password.dto';
 import { UpdateLocationDto } from './dtos/update-location.dto';
+import { GoogleLoginDto } from './dtos/google-login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -68,6 +69,28 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+
+  // -------------------------
+  // GOOGLE LOGIN
+  // -------------------------
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Iniciar sesión con Google',
+    description: 'Autentica al usuario usando Google Sign-In. Acepta el ID token de Google y retorna un JWT de la aplicación.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Login con Google exitoso.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Token de Google inválido.',
+  })
+  async loginWithGoogle(@Body() googleLoginDto: GoogleLoginDto) {
+    return this.authService.loginWithGoogle(googleLoginDto);
   }
 
   // -------------------------
