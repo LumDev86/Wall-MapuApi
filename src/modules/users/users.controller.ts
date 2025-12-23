@@ -2,7 +2,9 @@ import {
   Controller,
   Get,
   Patch,
+  Delete,
   Body,
+  Param,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -117,5 +119,34 @@ export class UsersController {
   })
   getUsersForCrm(@Query() filters: FilterUsersCrmDto) {
     return this.usersService.getUsersForCrm(filters);
+  }
+
+
+  // -------------------------
+  // DELETE USER
+  // -------------------------
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eliminar usuario (Solo Admin)',
+    description: 'Elimina un usuario del sistema. Solo administradores pueden realizar esta acción. Se eliminan también las mascotas asociadas al usuario.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Usuario eliminado exitosamente',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'No autorizado. Solo administradores pueden eliminar usuarios.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Usuario no encontrado',
+  })
+  async deleteUser(@Param('id') id: string) {
+    return this.usersService.deleteUser(id);
   }
 }

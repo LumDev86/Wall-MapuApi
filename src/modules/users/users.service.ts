@@ -171,4 +171,31 @@ export class UsersService {
       },
     };
   }
+
+
+  /**
+   * Eliminar usuario (Solo Admin)
+   */
+  async deleteUser(userId: string): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['pets', 'shops'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // Eliminar mascotas asociadas
+    if (user.pets && user.pets.length > 0) {
+      await this.petRepository.remove(user.pets);
+    }
+
+    // Eliminar usuario
+    await this.userRepository.remove(user);
+
+    return {
+      message: 'Usuario eliminado exitosamente',
+    };
+  }
 }
