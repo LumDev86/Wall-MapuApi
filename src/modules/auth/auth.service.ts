@@ -23,13 +23,19 @@ import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
+  private googleClient: OAuth2Client;
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private jwtService: JwtService,
     private readonly mailService: MailService,
     private readonly geocodingService: GeocodingService,
-  ) {}
+  ) {
+    this.googleClient = new OAuth2Client(
+      process.env.GOOGLE_CLIENT_ID,
+    );
+  }
 
   async register(registerDto: RegisterDto) {
     const { email, password, name, phone, role, province, city, address } = registerDto;
