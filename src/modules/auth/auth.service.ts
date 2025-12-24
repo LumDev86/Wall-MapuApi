@@ -173,7 +173,7 @@ export class AuthService {
         user = this.userRepository.create({
           email,
           password: hashedPassword,
-          name: name || email.split('@')[0],
+          name: name || email?.split('@')[0] || 'Usuario',
           role: UserRole.CLIENT,
           isEmailVerified: true, // Google ya verificó el email
         });
