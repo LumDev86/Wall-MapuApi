@@ -200,52 +200,12 @@ export class ShopsService {
       });
     }
 
-    // Filtrar por ubicación con manejo de errores
+    // Las coordenadas de ubicación se ignoran en el backend
+    // El filtrado y ordenamiento por distancia se hace en el frontend
+    // Solo asegurarse de devolver tiendas con coordenadas válidas
     if (latitude && longitude) {
-      try {
-        // Primero filtrar tiendas que tengan coordenadas válidas
-        query.andWhere('shop.latitude IS NOT NULL')
-             .andWhere('shop.longitude IS NOT NULL');
-
-        // Usar Haversine formula en lugar de earth_distance (más compatible)
-        // Calcula distancia en kilómetros
-        query.andWhere(`
-          (
-            6371 * acos(
-              cos(radians(:lat)) *
-              cos(radians(CAST(shop.latitude AS float))) *
-              cos(radians(CAST(shop.longitude AS float)) - radians(:lng)) +
-              sin(radians(:lat)) *
-              sin(radians(CAST(shop.latitude AS float)))
-            )
-          ) < :radiusKm
-        `, {
-          lat: latitude,
-          lng: longitude,
-          radiusKm: radius,
-        });
-
-        // Ordenar por distancia
-        query.addSelect(`
-          (
-            6371 * acos(
-              cos(radians(:lat)) *
-              cos(radians(CAST(shop.latitude AS float))) *
-              cos(radians(CAST(shop.longitude AS float)) - radians(:lng)) +
-              sin(radians(:lat)) *
-              sin(radians(CAST(shop.latitude AS float)))
-            )
-          )
-        `, 'distance')
-        .setParameter('lat', latitude)
-        .setParameter('lng', longitude)
-        .orderBy('distance', 'ASC');
-      } catch (error) {
-        console.error('Error calculating distance:', error);
-        // Si falla el cálculo de distancia, solo filtrar tiendas con coordenadas
-        query.andWhere('shop.latitude IS NOT NULL')
-             .andWhere('shop.longitude IS NOT NULL');
-      }
+      query.andWhere('shop.latitude IS NOT NULL')
+           .andWhere('shop.longitude IS NOT NULL');
     }
 
     if (openNow) {
