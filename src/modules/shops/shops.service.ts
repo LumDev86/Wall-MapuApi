@@ -200,17 +200,52 @@ export class ShopsService {
       });
     }
 
+    // Filtrar por ubicación con manejo de errores
     if (latitude && longitude) {
-      query.andWhere(`
-        earth_distance(
-          ll_to_earth(shop.latitude, shop.longitude),
-          ll_to_earth(:lat, :lng)
-        ) < :dist
-      `, {
-        lat: latitude,
-        lng: longitude,
-        dist: radius * 1000,
-      });
+      try {
+        // Primero filtrar tiendas que tengan coordenadas válidas
+        query.andWhere('shop.latitude IS NOT NULL')
+             .andWhere('shop.longitude IS NOT NULL');
+
+        // Usar Haversine formula en lugar de earth_distance (más compatible)
+        // Calcula distancia en kilómetros
+        query.andWhere(`
+          (
+            6371 * acos(
+              cos(radians(:lat)) *
+              cos(radians(CAST(shop.latitude AS float))) *
+              cos(radians(CAST(shop.longitude AS float)) - radians(:lng)) +
+              sin(radians(:lat)) *
+              sin(radians(CAST(shop.latitude AS float)))
+            )
+          ) < :radiusKm
+        `, {
+          lat: latitude,
+          lng: longitude,
+          radiusKm: radius,
+        });
+
+        // Ordenar por distancia
+        query.addSelect(`
+          (
+            6371 * acos(
+              cos(radians(:lat)) *
+              cos(radians(CAST(shop.latitude AS float))) *
+              cos(radians(CAST(shop.longitude AS float)) - radians(:lng)) +
+              sin(radians(:lat)) *
+              sin(radians(CAST(shop.latitude AS float)))
+            )
+          )
+        `, 'distance')
+        .setParameter('lat', latitude)
+        .setParameter('lng', longitude)
+        .orderBy('distance', 'ASC');
+      } catch (error) {
+        console.error('Error calculating distance:', error);
+        // Si falla el cálculo de distancia, solo filtrar tiendas con coordenadas
+        query.andWhere('shop.latitude IS NOT NULL')
+             .andWhere('shop.longitude IS NOT NULL');
+      }
     }
 
     if (openNow) {
