@@ -180,25 +180,19 @@ export class ShopsService {
     const query = this.shopRepository
       .createQueryBuilder('shop')
       .leftJoinAndSelect('shop.products', 'product')
-      .leftJoin('shop.owner', 'owner')
-      .leftJoin('owner.subscriptions', 'subscription', 'subscription.shopId = shop.id')
-      .where('shop.isActive = true')
-      // ⭐ FILTRO PRINCIPAL: Solo mostrar tiendas con suscripción ACTIVA
-      .andWhere('subscription.status = :subscriptionStatus', { subscriptionStatus: 'active' })
-      .andWhere('shop.status = :activeShopStatus', { activeShopStatus: ShopStatus.ACTIVE });
+      .where('shop.isActive = true');
 
     // Filtrar por rol
     if (user) {
       if (user.role === UserRole.CLIENT) {
-        query.andWhere('shop.type = :userRoleType', { userRoleType: ShopType.RETAILER });
+        query.andWhere('shop.type = :type', { type: ShopType.RETAILER });
       } else if (user.role === UserRole.RETAILER) {
-        query.andWhere('shop.type = :userRoleType', { userRoleType: ShopType.WHOLESALER });
+        query.andWhere('shop.type = :type', { type: ShopType.WHOLESALER });
       }
     }
 
-    // Filtros opcionales
-    if (type) query.andWhere('shop.type = :filterType', { filterType: type });
-    if (status) query.andWhere('shop.status = :filterStatus', { filterStatus: status });
+    if (type) query.andWhere('shop.type = :type', { type });
+    if (status) query.andWhere('shop.status = :status', { status });
 
     if (product) {
       query.andWhere('product.name ILIKE :product', {
