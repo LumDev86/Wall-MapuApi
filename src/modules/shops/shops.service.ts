@@ -180,12 +180,13 @@ export class ShopsService {
     const query = this.shopRepository
       .createQueryBuilder('shop')
       .leftJoinAndSelect('shop.products', 'product')
-      .leftJoin('shop.owner', 'owner')
-      .leftJoin('owner.subscriptions', 'subscription', 'subscription.shopId = shop.id')
-      .where('shop.isActive = true')
-      // ⭐ FILTRO PRINCIPAL: Solo mostrar tiendas con suscripción ACTIVA
-      .andWhere('subscription.status = :subscriptionStatus', { subscriptionStatus: 'active' })
-      .andWhere('shop.status = :activeShopStatus', { activeShopStatus: ShopStatus.ACTIVE });
+      // 🧪 MODO TESTING: Comentado temporalmente para mostrar TODAS las tiendas
+      // .leftJoin('shop.owner', 'owner')
+      // .leftJoin('owner.subscriptions', 'subscription', 'subscription.shopId = shop.id')
+      .where('shop.isActive = true');
+      // ⭐ FILTRO PRINCIPAL: Solo mostrar tiendas con suscripción ACTIVA (Comentado para testing)
+      // .andWhere('subscription.status = :subscriptionStatus', { subscriptionStatus: 'active' })
+      // .andWhere('shop.status = :activeShopStatus', { activeShopStatus: ShopStatus.ACTIVE });
 
     // Filtrar por rol
     if (user) {
